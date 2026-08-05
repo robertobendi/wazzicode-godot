@@ -47,7 +47,7 @@ dependencies = [
     "httpx>=0.27",
     # asgi.py imports these directly; declare them instead of relying on
     # them arriving transitively through fastmcp (audit backlog).
-    "uvicorn>=0.23",
+    "uvicorn>=0.52.1",
     # Starlette < 0.40.0 is affected by CVE-2024-47874 (multipart/form-data
     # denial of service). A normal install resolves far above this (fastmcp's
     # own floor is starlette>=1.0.1), but this package's declared floor is
