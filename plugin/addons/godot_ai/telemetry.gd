@@ -4,20 +4,21 @@
 ## reload, dev-server toggle) to the Python MCP server via the existing
 ## `send_event("plugin_event", {...})` channel. The server's
 ## `transport/websocket.py` allowlists event names and forwards into the
-## central telemetry pipeline — meaning opt-out, endpoint, customer_uuid
+## central telemetry pipeline — meaning opt-in, endpoint, customer_uuid
 ## and the bounded-queue worker stay in one place (Python), not
 ## duplicated in GDScript.
 ##
-## Opt-out options priority:
+## Privacy preference priority:
 ##   1. `GODOT_AI_DISABLE_TELEMETRY` / `DISABLE_TELEMETRY` env vars —
 ##      checked first so CI / operators can force-disable without touching
 ##      EditorSettings.
-##   2. The `godot_ai/telemetry_enabled` EditorSetting — set through the
+##   2. `GODOT_AI_ENABLE_TELEMETRY` — explicit process-level opt-in.
+##   3. The `godot_ai/telemetry_enabled` EditorSetting — set through the
 ##      MCP dock and persisted between sessions.
 ##
 ## When telemetry is disabled, events are never buffered or sent. Only a
-## *truthy* env var force-disables; a falsey or absent env var falls through
-## to the EditorSetting (which defaults to enabled). See McpSettings.telemetry_enabled.
+## *truthy* disable env var force-disables; absent/falsey controls fall through
+## to the EditorSetting, which defaults to disabled. See McpSettings.telemetry_enabled.
 ##
 ## Buffering: events recorded before the WebSocket is connected go into
 ## a small bounded buffer and flush on the next `record_event` call once

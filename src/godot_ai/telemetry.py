@@ -1,4 +1,4 @@
-"""Anonymous, privacy-focused telemetry for Godot AI.
+"""Anonymous, privacy-focused telemetry for WazziCode Godot.
 
 Ported from CoplayDev/unity-mcp's ``core/telemetry.py`` + ``core/telemetry_decorator.py``
 and simplified:
@@ -6,16 +6,17 @@ and simplified:
 * Single combined sync/async decorator (`telemetry_tool` / `telemetry_resource`).
 * ``httpx`` only — no urllib fallback (httpx is a fastmcp transitive dep).
 * No pyproject.toml walk — ``godot_ai.__version__`` is canonical.
-* Single opt-out env (``GODOT_AI_DISABLE_TELEMETRY``) plus the shared
-  ``DISABLE_TELEMETRY``.
+* Explicit opt-in via ``GODOT_AI_ENABLE_TELEMETRY``. The legacy
+  ``GODOT_AI_DISABLE_TELEMETRY`` and shared ``DISABLE_TELEMETRY`` controls
+  remain authoritative kill switches.
 * Session-id slugs are hashed before leaving the process (privacy: project
   directory names can be identifying — only the 4-hex twin suffix is sent
   verbatim).
-* Endpoint resolves env override -> baked-in production default
-  (``GODOT_AI_TELEMETRY_ENDPOINT`` -> ``DEFAULT_ENDPOINT``), so telemetry
-  sends by default; the opt-out env vars are the only way to stop sends.
-  An *invalid* override resolves to empty (send-skipped) rather than
-  falling back, so a misconfigured self-host can't leak to production.
+* Endpoint resolves env override -> baked-in upstream production default
+  (``GODOT_AI_TELEMETRY_ENDPOINT`` -> ``DEFAULT_ENDPOINT``), but it is only
+  used after explicit opt-in. An *invalid* override resolves to empty
+  (send-skipped) rather than falling back, so a misconfigured self-host can't
+  leak to production.
 
 Fire-and-forget: a single background daemon thread drains a bounded
 ``queue.Queue`` and POSTs records. Telemetry never blocks the caller and
@@ -152,11 +153,12 @@ def hash_session_id(session_id: str | None, *, salt: str = "") -> str:
 class TelemetryConfig:
     """Telemetry configuration resolved from env vars at construction time.
 
-    Telemetry is **on by default**: a fresh install posts anonymous
-    usage events to ``DEFAULT_ENDPOINT`` until the user sets
-    ``GODOT_AI_DISABLE_TELEMETRY=true`` (or the cross-tool
-    ``DISABLE_TELEMETRY=true``). ``GODOT_AI_TELEMETRY_ENDPOINT``
-    overrides the default for self-hosters and during smoke testing.
+    Telemetry is **off by default**. A user must explicitly set
+    ``GODOT_AI_ENABLE_TELEMETRY=true`` before anonymous usage events can be
+    posted to ``DEFAULT_ENDPOINT``. ``GODOT_AI_DISABLE_TELEMETRY=true`` and
+    the cross-tool ``DISABLE_TELEMETRY=true`` always win, even if the enable
+    variable is also truthy. ``GODOT_AI_TELEMETRY_ENDPOINT`` overrides the
+    default for self-hosters and during smoke testing.
 
     Privacy posture matches the docs in ``docs/TELEMETRY.md``: only
     anonymous, slug-hashed identifiers leave the process. If telemetry
@@ -174,7 +176,7 @@ class TelemetryConfig:
     DEFAULT_TIMEOUT = 1.5
 
     def __init__(self) -> None:
-        self.enabled = not self._is_disabled_via_env()
+        self.enabled = self._is_enabled_via_env()
         logger.info(f"Telemetry {['disabled', 'enabled'][self.enabled]}")
         ## allow_loopback must be resolved before _resolve_endpoint(), which
         ## reads it to decide whether to accept http://127.0.0.1 endpoints.
@@ -187,7 +189,7 @@ class TelemetryConfig:
         self.timeout = self._resolve_timeout()
 
         ## On-disk artifacts are deferred until telemetry is actually
-        ## enabled: opt-out must not create the data directory or
+        ## enabled: the default-disabled path must not create the data directory or
         ## generate a customer_uuid (see docs/TELEMETRY.md). The
         ## collector won't call _load_persistent_data when disabled,
         ## so leaving these as None is safe.
@@ -210,6 +212,13 @@ class TelemetryConfig:
     @classmethod
     def _is_disabled_via_env(cls) -> bool:
         return cls._env_truthy("GODOT_AI_DISABLE_TELEMETRY") or cls._env_truthy("DISABLE_TELEMETRY")
+
+    @classmethod
+    def _is_enabled_via_env(cls) -> bool:
+        """Return true only for an explicit opt-in with no active kill switch."""
+        if cls._is_disabled_via_env():
+            return False
+        return cls._env_truthy("GODOT_AI_ENABLE_TELEMETRY")
 
     def _resolve_endpoint(self) -> str:
         ## Resolution order: env override -> baked-in default. Both go
@@ -287,7 +296,7 @@ class TelemetryConfig:
         return data_dir
 
     def _cleanup_local_files(self) -> None:
-        """Best-effort deletion of persisted telemetry files on opt-out."""
+        """Best-effort deletion of persisted telemetry files while disabled."""
         try:
             data_dir = self._resolve_data_directory()
             if not data_dir.exists():

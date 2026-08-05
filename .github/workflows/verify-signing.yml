@@ -1,4 +1,4 @@
-name: Verify signing secret
+name: Upstream signing check (disabled in WazziCode fork)
 
 # Manual end-to-end check of the release-signing chain (#687) WITHOUT cutting
 # a release: signs a synthetic payload with the RELEASE_SIGNING_KEY_PEM
@@ -18,6 +18,7 @@ env:
 
 jobs:
   verify:
+    if: github.repository == 'hi-godot/godot-ai'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -16,4 +16,5 @@ args = [
   "9623",
   "--exclude-domains",
   "audio,particle",
+  "--disable-telemetry",
 ]

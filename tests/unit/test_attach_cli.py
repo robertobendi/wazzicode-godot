@@ -119,7 +119,7 @@ async def test_run_attach_wires_ensure_observer_proxy_and_lease(monkeypatch) -> 
 
 
 def test_disable_telemetry_flag_sets_env_for_bridge_and_backend(monkeypatch) -> None:
-    """The client entry carries the opt-out as argv; the bridge must translate
+    """The client entry carries the kill switch as argv; the bridge must translate
     it back into the env contract telemetry.py honors BEFORE run_attach, so the
     backend spawn's os.environ copy (ensure._backend_spawn_env) inherits it."""
 
@@ -134,6 +134,29 @@ def test_disable_telemetry_flag_sets_env_for_bridge_and_backend(monkeypatch) -> 
     attach_main_module.main(["--disable-telemetry"])
 
     assert seen_env == ["true"]
+
+
+def test_enable_telemetry_flag_sets_env_for_bridge_and_backend(monkeypatch) -> None:
+    seen_env: list[str | None] = []
+
+    async def record(*_args):
+        seen_env.append(os.environ.get("GODOT_AI_ENABLE_TELEMETRY"))
+
+    monkeypatch.setattr(attach_main_module, "run_attach", record)
+    monkeypatch.delenv("GODOT_AI_ENABLE_TELEMETRY", raising=False)
+
+    attach_main_module.main(["--enable-telemetry"])
+
+    assert seen_env == ["true"]
+
+
+def test_disable_and_enable_telemetry_flags_are_mutually_exclusive() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        attach_main_module._parser().parse_args(
+            ["--enable-telemetry", "--disable-telemetry"]
+        )
+
+    assert exc_info.value.code == 2
 
 
 def test_without_disable_telemetry_flag_env_stays_unset(monkeypatch) -> None:

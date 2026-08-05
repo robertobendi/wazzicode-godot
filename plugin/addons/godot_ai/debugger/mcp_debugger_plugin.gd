@@ -495,7 +495,7 @@ func _explain_not_live(status: Dictionary, code: String = ErrorCodes.INTERNAL_ER
 	match state:
 		"not_live":
 			if not recent_errors.is_empty() and recent_errors_scope == "run":
-				message = "The game failed to load or crashed before the Godot AI game helper registered: %s. Check logs_read(source='editor', include_details=true)." % _format_editor_error_summary(recent_errors[0])
+				message = "The game failed to load or crashed before the WazziCode Godot game helper registered: %s. Check logs_read(source='editor', include_details=true)." % _format_editor_error_summary(recent_errors[0])
 				if truncated:
 					message += " Editor logs since this run may be truncated; showing retained errors."
 			elif not recent_errors.is_empty():
@@ -513,7 +513,7 @@ func _explain_not_live(status: Dictionary, code: String = ErrorCodes.INTERNAL_ER
 		"no_helper":
 			message = "The running game has no _mcp_game_helper autoload, so game-side tools cannot connect. If this is a headless or custom-main-loop project, use editor_screenshot(source='viewport') where applicable. Otherwise, re-enable the plugin and relaunch the game."
 		"launching":
-			message = "The game is still starting (%.1fs elapsed); the Godot AI game helper has not registered yet. Retry shortly." % (float(status.get("elapsed_msec", 0)) / 1000.0)
+			message = "The game is still starting (%.1fs elapsed); the WazziCode Godot game helper has not registered yet. Retry shortly." % (float(status.get("elapsed_msec", 0)) / 1000.0)
 		"stopped":
 			message = "The game is not running. Start the project and retry the game-side tool."
 		_:

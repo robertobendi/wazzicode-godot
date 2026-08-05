@@ -170,7 +170,7 @@ func test_clients_header_and_actions_use_narrow_layout() -> void:
 	var expected: Array[String] = ["Refresh", "Clients & Tools"]
 	assert_eq(button_texts, expected,
 		"Client action buttons should stay compact and keep their handlers")
-	assert_eq(_dock._clients_window.title, "Godot AI Settings",
+	assert_eq(_dock._clients_window.title, "WazziCode Godot Settings",
 		"Clients & Tools window should title the settings surface with product context")
 	var tabs := _dock._clients_window.get_child(0) as TabContainer
 	assert_true(tabs != null, "Clients & Tools window should contain a tab container")

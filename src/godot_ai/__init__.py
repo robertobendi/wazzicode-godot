@@ -1,4 +1,4 @@
-"""Godot AI — production-grade Godot MCP server."""
+"""WazziCode Godot — production-grade Godot MCP server."""
 
 from __future__ import annotations
 
@@ -115,10 +115,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
 
     parser = argparse.ArgumentParser(
-        description="Godot AI server",
+        description="WazziCode Godot server (compatibility package: godot-ai)",
         epilog=(
             "Client-owned bridge: godot-ai attach [--port PORT] [--ws-port PORT] "
-            "[--exclude-domains LIST]. Run 'godot-ai attach --help' for details."
+            "[--exclude-domains LIST]. The wazzicode-godot alias is equivalent. "
+            "Run 'godot-ai attach --help' for details."
         ),
     )
     parser.add_argument(
@@ -188,8 +189,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         default="",
         help=(
             "Comma-separated list of tool domains to drop from registration "
-            "(e.g. 'audio,particle,theme'). Core tools (editor_state, "
-            "scene_get_hierarchy, node_get_properties, "
+            "(e.g. 'audio,particle,theme'). Core tools (godot_orient, "
+            "editor_state, scene_get_hierarchy, node_get_properties, "
             "session_activate) are always registered. Use this to fit under "
             "a client's hard tool-count cap (Antigravity limits to 100)."
         ),

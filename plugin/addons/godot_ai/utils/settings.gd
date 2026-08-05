@@ -34,15 +34,18 @@ static func env_truthy(var_name: String) -> bool:
 
 ## Returns true if telemetry should be active, checking in priority order:
 ##   1. GODOT_AI_DISABLE_TELEMETRY / DISABLE_TELEMETRY env vars
-##   2. The godot_ai/telemetry_enabled EditorSetting written by the dock UI
-## Defaults to true when neither source has set a preference.
+##   2. GODOT_AI_ENABLE_TELEMETRY env var
+##   3. The godot_ai/telemetry_enabled EditorSetting written by the dock UI
+## Defaults to false when neither source has set a preference.
 static func telemetry_enabled() -> bool:
 	if env_truthy("GODOT_AI_DISABLE_TELEMETRY") or env_truthy("DISABLE_TELEMETRY"):
 		return false
+	if env_truthy("GODOT_AI_ENABLE_TELEMETRY"):
+		return true
 	var es := EditorInterface.get_editor_settings()
 	if es != null and es.has_setting(SETTING_TELEMETRY_ENABLED):
 		return bool(es.get_setting(SETTING_TELEMETRY_ENABLED))
-	return true
+	return false
 
 
 ## Returns whether MCP log lines should echo to the Godot console. Read at

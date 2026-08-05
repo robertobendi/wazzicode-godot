@@ -1,10 +1,13 @@
 [project]
 name = "godot-ai"
 version = "3.1.1"
-description = "Production-grade MCP server and AI tools for the Godot engine"
+description = "WazziCode Godot MCP bridge for Codex, Claude, and other AI coding clients"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
-authors = [{ name = "Godot AI contributors" }]
+authors = [
+    { name = "WazziCode Godot contributors" },
+    { name = "Godot AI contributors" },
+]
 keywords = [
     "godot",
     "godot-engine",
@@ -54,10 +57,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/hi-godot/godot-ai"
-Repository = "https://github.com/hi-godot/godot-ai"
-Issues = "https://github.com/hi-godot/godot-ai/issues"
-Documentation = "https://github.com/hi-godot/godot-ai#readme"
+Homepage = "https://github.com/robertobendi/wazzicode-godot"
+Repository = "https://github.com/robertobendi/wazzicode-godot"
+Issues = "https://github.com/robertobendi/wazzicode-godot/issues"
+Documentation = "https://github.com/robertobendi/wazzicode-godot#readme"
+Upstream = "https://github.com/hi-godot/godot-ai"
 
 [project.optional-dependencies]
 dev = [
@@ -76,6 +80,7 @@ build = [
 
 [project.scripts]
 godot-ai = "godot_ai:main"
+wazzicode-godot = "godot_ai:main"
 
 [build-system]
 requires = ["setuptools>=75.0"]

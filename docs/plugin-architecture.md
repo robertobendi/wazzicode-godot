@@ -53,7 +53,7 @@ That includes:
 - session registry and active-session resolution, with `<project-slug>@<4hex>` IDs and substring/path matching in `session_activate`
 - request validation and structured error mapping (`protocol/errors.py`)
 - job tracking for long-running operations and the deferred-response pattern for replies that flow back over a different channel (game capture)
-- the `--exclude-domains` CLI flag and dock UI knob, so tool-capped clients (Antigravity, etc.) can drop entire domains at server start while keeping the four core tools alive
+- the `--exclude-domains` CLI flag and dock UI knob, so tool-capped clients (Antigravity, etc.) can drop entire domains at server start while keeping the five core tools alive
 - CLI entry points for diagnostics and packaging (`python -m godot_ai`, the dev `--reload` runner via `src/godot_ai/asgi.py`)
 
 The plugin stays thin. Complex orchestration belongs in Python; direct editor work belongs in Godot.

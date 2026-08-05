@@ -27,6 +27,7 @@ from collections.abc import Iterable
 ## domains.
 DOMAINS: tuple[str, ...] = (
     "session",
+    "godot",
     "editor",
     "scene",
     "node",
@@ -56,14 +57,17 @@ DOMAINS: tuple[str, ...] = (
 ## Domains that contain at least one core (always-loaded) tool. When the
 ## user excludes one of these, only its non-core tools are dropped; the
 ## core tool is still registered.
-CORE_BEARING_DOMAINS: frozenset[str] = frozenset({"session", "editor", "scene", "node"})
+CORE_BEARING_DOMAINS: frozenset[str] = frozenset(
+    {"session", "godot", "editor", "scene", "node"}
+)
 
-## The 4 core tools that survive any exclusion. Displayed as a disabled
+## The 5 core tools that survive any exclusion. Displayed as a disabled
 ## "Core" row in the plugin UI. ``session_list`` moved to ``godot://sessions``
 ## resource + ``session_manage(op="list")``; ``session_activate`` is the only
 ## session core tool left.
 CORE_TOOLS: tuple[str, ...] = (
     "session_activate",
+    "godot_orient",
     "editor_state",
     "scene_get_hierarchy",
     "node_get_properties",

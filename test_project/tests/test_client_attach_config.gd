@@ -45,7 +45,7 @@ func test_launch_resolver_dev_venv_shape() -> void:
 	assert_eq(launch.get("command"), "C:/repo/.venv/Scripts/pythonw.exe")
 	assert_eq(
 		launch.get("args"),
-		["-m", "godot_ai", "attach", "--port", "8123", "--ws-port", "9623", "--exclude-domains", "audio"],
+		["-m", "godot_ai", "attach", "--port", "8123", "--ws-port", "9623", "--exclude-domains", "audio", "--disable-telemetry"],
 	)
 
 
@@ -67,17 +67,23 @@ func test_disabled_telemetry_renders_flag_and_participates_in_drift() -> void:
 		["-m", "godot_ai", "attach", "--port", "8123", "--ws-port", "9623", "--disable-telemetry"],
 	)
 
-	## Enabled AND absent (hand-built contexts, stale pre-upgrade snapshots)
-	## must both render without the flag — send-by-default matches the server.
+	## Enabled contexts opt in explicitly. Absent preferences (hand-built
+	## contexts, stale pre-upgrade snapshots) remain explicitly disabled.
 	var enabled_context := _context()
 	enabled_context["telemetry_enabled"] = true
-	for ctx in [enabled_context, _context()]:
-		var clean := McpClientConfigurator.resolve_attach_launch(ctx, overrides)
-		assert_eq(
-			clean.get("args"),
-			["-m", "godot_ai", "attach", "--port", "8123", "--ws-port", "9623"],
-			"telemetry on (or unspecified) must not add the flag",
-		)
+	var opted_in := McpClientConfigurator.resolve_attach_launch(enabled_context, overrides)
+	assert_eq(
+		opted_in.get("args"),
+		["-m", "godot_ai", "attach", "--port", "8123", "--ws-port", "9623", "--enable-telemetry"],
+	)
+	var absent_context := _context()
+	absent_context.erase("telemetry_enabled")
+	var absent := McpClientConfigurator.resolve_attach_launch(absent_context, overrides)
+	assert_eq(
+		absent.get("args"),
+		["-m", "godot_ai", "attach", "--port", "8123", "--ws-port", "9623", "--disable-telemetry"],
+		"an unspecified preference must stay private",
+	)
 
 	## A toggle is launch drift: distinct cache keys, so a stale resolution
 	## cannot serve an argv rendered under the old preference.
@@ -118,6 +124,7 @@ func test_launch_resolver_uvx_is_strict_and_pinned() -> void:
 			"--port", "8123",
 			"--ws-port", "9623",
 			"--exclude-domains", "audio,particle",
+			"--disable-telemetry",
 		],
 	)
 
@@ -139,7 +146,7 @@ func test_launch_resolver_system_requires_exact_parseable_version() -> void:
 	assert_eq(compatible.get("args", [])[2], "C:/Tools/godot-ai.exe")
 	assert_eq(
 		compatible.get("args", []).slice(3),
-		["attach", "--port", "8123", "--ws-port", "9623"],
+		["attach", "--port", "8123", "--ws-port", "9623", "--disable-telemetry"],
 	)
 
 	for bad_probe in [
@@ -793,6 +800,7 @@ func _context(exclusions: String = "") -> Dictionary:
 		"allow_dev_venv": true,
 		"platform": "Windows",
 		"server_url": "http://127.0.0.1:8123/mcp",
+		"telemetry_enabled": false,
 	}
 
 

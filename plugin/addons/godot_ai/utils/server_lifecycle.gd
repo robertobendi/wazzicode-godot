@@ -563,25 +563,25 @@ static func _live_package_path_for_message(live: Dictionary) -> String:
 # ---- start_server / spawn watch / respawn -----------------------------
 
 
-## Sets GODOT_AI_DISABLE_TELEMETRY in the process environment for the
-## upcoming OS.create_process call if: (a) neither GODOT_AI_DISABLE_TELEMETRY
-## nor DISABLE_TELEMETRY is already set to a *truthy* value (a falsey "0" does
-## NOT count — it must not suppress a dock UI opt-out), and (b) the effective
-## McpSettings.telemetry_enabled() is false. Returns true if the var was
-## injected so the caller can unset it after spawning.
-func _inject_telemetry_env() -> bool:
-	## If telemetry is already disabled by a *truthy* env var, leave the env as
-	## the user/CI set it — the post-spawn cleanup unsets what we inject, so
-	## injecting here would strip their own var from the editor process. A
-	## *falsey* value (e.g. DISABLE_TELEMETRY=0) must NOT count as "handled":
-	## fall through so a dock UI opt-out still reaches the spawned server. The
-	## truthy test mirrors McpSettings.telemetry_enabled() and the Python server.
+## Stages the effective telemetry preference for the upcoming
+## OS.create_process call. Disabled settings inject the legacy kill switch so
+## older default-on backends remain private; enabled settings inject the new
+## explicit opt-in required by privacy-first backends. Returns the name of the
+## temporary variable so the caller can unset exactly what this method added.
+## Existing truthy user/CI controls are never removed, and either truthy
+## disable variable remains authoritative over the enable variable.
+func _inject_telemetry_env() -> String:
 	if McpSettings.env_truthy("GODOT_AI_DISABLE_TELEMETRY") or McpSettings.env_truthy("DISABLE_TELEMETRY"):
-		return false
-	if not McpSettings.telemetry_enabled():
-		OS.set_environment("GODOT_AI_DISABLE_TELEMETRY", "true")
-		return true
-	return false
+		return ""
+	var var_name := (
+		"GODOT_AI_ENABLE_TELEMETRY"
+		if McpSettings.telemetry_enabled()
+		else "GODOT_AI_DISABLE_TELEMETRY"
+	)
+	if McpSettings.env_truthy(var_name):
+		return ""
+	OS.set_environment(var_name, "true")
+	return var_name
 
 
 ## Set GODOT_AI_OWNER_PID to this editor's PID for the next OS.create_process,
@@ -948,8 +948,8 @@ func _start_server_impl(async_gen: int) -> void:
 		else:
 			OS.set_environment("PYTHONPATH", prev_pythonpath)
 
-	if injected_telemetry_env:
-		OS.unset_environment("GODOT_AI_DISABLE_TELEMETRY")
+	if not injected_telemetry_env.is_empty():
+		OS.unset_environment(injected_telemetry_env)
 
 	if spawned_pid > 0:
 		_server_spawn_ms = Time.get_ticks_msec()
@@ -1330,8 +1330,8 @@ func respawn_with_refresh() -> void:
 	if keep_alive_env_set:
 		OS.unset_environment("GODOT_AI_NO_IDLE_EXIT")
 	OS.unset_environment("GODOT_AI_WS_TOKEN")
-	if injected_telemetry_env:
-		OS.unset_environment("GODOT_AI_DISABLE_TELEMETRY")
+	if not injected_telemetry_env.is_empty():
+		OS.unset_environment(injected_telemetry_env)
 	var spawn_pid := int(_server_pid)
 	if spawn_pid > 0:
 		_server_spawn_ms = Time.get_ticks_msec()

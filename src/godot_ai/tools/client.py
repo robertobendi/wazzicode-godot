@@ -1,4 +1,4 @@
-"""MCP tool for configuring AI clients to use Godot AI."""
+"""MCP tool for configuring AI clients to use WazziCode Godot."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from godot_ai.handlers import client as client_handlers
 from godot_ai.tools._meta_tool import register_manage_tool
 
 _DESCRIPTION = """\
-Configure AI clients to use this Godot AI MCP server. Writes / removes
+Configure AI clients to use this WazziCode Godot MCP server. Writes / removes
 client config files (Claude Code, Codex, Antigravity, Cursor, Devin Desktop (Windsurf),
 Zed, etc.).
 

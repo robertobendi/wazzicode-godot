@@ -393,7 +393,7 @@ def spawn_backend(port: int, ws_port: int, exclude_domains: tuple[str, ...]) -> 
             "BACKEND_START_FAILED",
             f"Could not prepare backend log {log_path}: {exc}.",
             hint=(
-                "Stop any orphaned Godot AI backend that still has this log open, "
+                "Stop any orphaned WazziCode Godot backend that still has this log open, "
                 "verify the runtime directory is writable, then retry."
             ),
             data={"log_path": str(log_path), "errno": exc.errno},
@@ -554,7 +554,8 @@ def _foreign_occupant(port: int, detail: str) -> AttachStartupError:
         "PORT_OCCUPIED",
         f"Port {port} is occupied by a process the bridge cannot adopt: {detail}.",
         hint=(
-            "Stop that process or configure Godot AI and the MCP client to use free matching ports."
+            "Stop that process or configure WazziCode Godot and the MCP client "
+            "to use free matching ports."
         ),
         exit_code=98,
         data={"port": port},
@@ -564,9 +565,9 @@ def _foreign_occupant(port: int, detail: str) -> AttachStartupError:
 def _incompatible_backend(detail: str, *, payload: dict[str, Any]) -> AttachStartupError:
     return AttachStartupError(
         ErrorCode.NEW_CLIENT_SESSION_REQUIRED.value,
-        f"A different Godot AI backend is already running: {detail}.",
+        f"A different WazziCode Godot backend is already running: {detail}.",
         hint=(
-            "This running MCP client session cannot be repaired. Reconfigure every Godot AI "
+            "This running MCP client session cannot be repaired. Reconfigure every WazziCode Godot "
             "MCP client to the same package version and ports, then start a new MCP client "
             "session. The bridge will not replace the running backend."
         ),

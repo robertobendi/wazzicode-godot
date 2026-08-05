@@ -249,7 +249,7 @@ static func capture_launch_context() -> Dictionary:
 		"allow_dev_venv": mode_override() != "user",
 		"platform": OS.get_name(),
 		"server_url": "http://127.0.0.1:%d/mcp" % captured_http_port,
-		## The opt-out must ride the attach argv: the client spawns the bridge
+		## The privacy preference must ride the attach argv: the client spawns the bridge
 		## (and the bridge its backend) with no editor in the loop, so the
 		## env-injection path in server_lifecycle.gd never runs for them.
 		"telemetry_enabled": McpSettings.telemetry_enabled(),
@@ -824,12 +824,14 @@ static func _resolve_attach_launch_uncached(
 	var exclusions := str(launch_context.get("excluded_domains", "")).strip_edges()
 	if not exclusions.is_empty():
 		common_args.append_array(["--exclude-domains", exclusions])
-	## Default true when the key is absent (hand-built contexts in tests, stale
-	## pre-upgrade snapshots) — matching the server's send-by-default posture.
+	## Default false when the key is absent (hand-built contexts in tests, stale
+	## pre-upgrade snapshots) — matching the server's privacy-first posture.
 	## Toggling the setting changes the rendered argv, so existing entries read
 	## CONFIGURED_MISMATCH and the dock offers Reconfigure, like any other
 	## launch-affecting value.
-	if not bool(launch_context.get("telemetry_enabled", true)):
+	if bool(launch_context.get("telemetry_enabled", false)):
+		common_args.append("--enable-telemetry")
+	else:
 		common_args.append("--disable-telemetry")
 
 	var venv_python := ""

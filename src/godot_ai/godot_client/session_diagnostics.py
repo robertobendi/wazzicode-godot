@@ -6,7 +6,7 @@ from typing import Any
 
 NO_ACTIVE_SESSION_MESSAGE = (
     "No active Godot session is connected to this MCP server. "
-    "Open this project in the Godot editor with the Godot AI plugin enabled, "
+    "Open this project in the Godot editor with the WazziCode Godot plugin enabled, "
     "wait for it to connect, then retry the same tool call. Restarting the MCP "
     "client is not required. Verify the editor and this MCP server share the same loopback/network "
     "namespace. In Docker or remote-agent setups, do not point the agent at a "
@@ -14,7 +14,7 @@ NO_ACTIVE_SESSION_MESSAGE = (
 )
 
 NO_ACTIVE_SESSION_HINT = (
-    "Open this project in the Godot editor with the Godot AI plugin enabled, wait "
+    "Open this project in the Godot editor with the WazziCode Godot plugin enabled, wait "
     "for it to connect, then retry the same tool call. Restarting the MCP client is "
     "not required. Run session_manage(op='list') to confirm whether this server has "
     "any editor sessions. If it returns count=0, start or reconnect the editor to this "

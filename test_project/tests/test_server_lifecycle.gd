@@ -99,9 +99,11 @@ const TEST_PORT := 65431
 
 const _TENV1 := "GODOT_AI_DISABLE_TELEMETRY"
 const _TENV2 := "DISABLE_TELEMETRY"
+const _TENV3 := "GODOT_AI_ENABLE_TELEMETRY"
 
 var _saved_tenv1: Variant = null
 var _saved_tenv2: Variant = null
+var _saved_tenv3: Variant = null
 var _saved_telemetry_setting: Variant = null
 
 
@@ -122,6 +124,7 @@ var _saved_ws_port_published := false
 func suite_setup(_ctx: Dictionary) -> void:
 	_saved_tenv1 = OS.get_environment(_TENV1) if OS.has_environment(_TENV1) else null
 	_saved_tenv2 = OS.get_environment(_TENV2) if OS.has_environment(_TENV2) else null
+	_saved_tenv3 = OS.get_environment(_TENV3) if OS.has_environment(_TENV3) else null
 	var es := EditorInterface.get_editor_settings()
 	if es.has_setting(McpSettings.SETTING_TELEMETRY_ENABLED):
 		_saved_telemetry_setting = es.get_setting(McpSettings.SETTING_TELEMETRY_ENABLED)
@@ -137,6 +140,7 @@ func teardown() -> void:
 func suite_teardown() -> void:
 	_restore_tenv(_TENV1, _saved_tenv1)
 	_restore_tenv(_TENV2, _saved_tenv2)
+	_restore_tenv(_TENV3, _saved_tenv3)
 	EditorInterface.get_editor_settings().set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, _saved_telemetry_setting)
 	GodotAiPlugin._resolved_ws_port = _saved_resolved_ws_port
 	GodotAiPlugin._ws_port_resolution_published = _saved_ws_port_published
@@ -152,6 +156,7 @@ func _restore_tenv(name: String, saved: Variant) -> void:
 func _clear_telemetry_env_vars() -> void:
 	OS.unset_environment(_TENV1)
 	OS.unset_environment(_TENV2)
+	OS.unset_environment(_TENV3)
 
 
 # ----- seam wiring -----------------------------------------------------
@@ -911,11 +916,11 @@ func test_inject_sets_env_when_telemetry_disabled_in_settings() -> void:
 
 	var injected := manager._inject_telemetry_env()
 	var env_present := OS.has_environment(_TENV1)
-	if injected:
-		OS.unset_environment(_TENV1)
+	if not injected.is_empty():
+		OS.unset_environment(injected)
 	host.free()
 
-	assert_true(injected, "_inject_telemetry_env must return true when it sets the var")
+	assert_eq(injected, _TENV1, "the helper must identify the variable it staged")
 	assert_true(env_present, "GODOT_AI_DISABLE_TELEMETRY must be set in process env for the spawn")
 
 
@@ -931,15 +936,15 @@ func test_inject_env_is_unset_after_caller_restores() -> void:
 	var manager := McpServerLifecycleManagerScript.new(host)
 
 	var injected := manager._inject_telemetry_env()
-	if injected:
-		OS.unset_environment(_TENV1)  ## mirrors what start_server / respawn_with_refresh do
+	if not injected.is_empty():
+		OS.unset_environment(injected)  ## mirrors what start_server / respawn_with_refresh do
 	var env_present_after := OS.has_environment(_TENV1)
 	host.free()
 
 	assert_false(env_present_after, "editor process env must be clean after the spawn-window restore")
 
 
-func test_inject_skips_when_setting_is_true() -> void:
+func test_inject_sets_enable_env_when_setting_is_true() -> void:
 	_clear_telemetry_env_vars()
 	EditorInterface.get_editor_settings().set_setting(
 		McpSettings.SETTING_TELEMETRY_ENABLED, true
@@ -948,13 +953,13 @@ func test_inject_skips_when_setting_is_true() -> void:
 	var manager := McpServerLifecycleManagerScript.new(host)
 
 	var injected := manager._inject_telemetry_env()
-	var env_present := OS.has_environment(_TENV1)
-	if injected:
-		OS.unset_environment(_TENV1)
+	var env_present := OS.has_environment(_TENV3)
+	if not injected.is_empty():
+		OS.unset_environment(injected)
 	host.free()
 
-	assert_false(injected, "must not inject when telemetry is enabled")
-	assert_false(env_present, "GODOT_AI_DISABLE_TELEMETRY must not be set when telemetry is enabled")
+	assert_eq(injected, _TENV3, "an editor opt-in must reach the spawned backend")
+	assert_true(env_present, "GODOT_AI_ENABLE_TELEMETRY must be staged for the spawn")
 
 
 func test_inject_skips_when_godot_ai_disable_telemetry_already_present() -> void:
@@ -963,6 +968,7 @@ func test_inject_skips_when_godot_ai_disable_telemetry_already_present() -> void
 	## cleanup, removing the user's own setting).
 	OS.set_environment(_TENV1, "true")
 	OS.unset_environment(_TENV2)
+	OS.set_environment(_TENV3, "true")
 	EditorInterface.get_editor_settings().set_setting(
 		McpSettings.SETTING_TELEMETRY_ENABLED, false
 	)
@@ -972,12 +978,13 @@ func test_inject_skips_when_godot_ai_disable_telemetry_already_present() -> void
 	var injected := manager._inject_telemetry_env()
 	host.free()
 
-	assert_false(injected, "must not inject when GODOT_AI_DISABLE_TELEMETRY is already in env")
+	assert_eq(injected, "", "must not inject when GODOT_AI_DISABLE_TELEMETRY is already in env")
 
 
 func test_inject_skips_when_disable_telemetry_already_present() -> void:
 	OS.unset_environment(_TENV1)
 	OS.set_environment(_TENV2, "1")
+	OS.set_environment(_TENV3, "true")
 	EditorInterface.get_editor_settings().set_setting(
 		McpSettings.SETTING_TELEMETRY_ENABLED, false
 	)
@@ -987,14 +994,28 @@ func test_inject_skips_when_disable_telemetry_already_present() -> void:
 	var injected := manager._inject_telemetry_env()
 	host.free()
 
-	assert_false(injected, "must not inject when DISABLE_TELEMETRY is already in env")
+	assert_eq(injected, "", "must not inject when DISABLE_TELEMETRY is already in env")
+
+
+func test_inject_skips_existing_positive_opt_in() -> void:
+	_clear_telemetry_env_vars()
+	OS.set_environment(_TENV3, "on")
+	EditorInterface.get_editor_settings().set_setting(
+		McpSettings.SETTING_TELEMETRY_ENABLED, false
+	)
+	var host := _ManagerHostStub.new()
+	var manager := McpServerLifecycleManagerScript.new(host)
+
+	var injected := manager._inject_telemetry_env()
+	host.free()
+
+	assert_eq(injected, "", "a user-owned positive opt-in must be preserved, not restaged")
 
 
 func test_inject_when_env_present_but_falsey_and_setting_disabled() -> void:
 	## A falsey env value (e.g. DISABLE_TELEMETRY=0) must NOT suppress a dock UI
-	## opt-out. The Python server parses the env truthily, so a falsey value
-	## leaves the server *enabled* — the plugin has to inject the disable flag
-	## so the opt-out actually reaches the spawned server. The old
+	## disabled preference. The plugin still injects the disable flag for
+	## compatibility with older default-on backends. The old
 	## has_environment() guard treated any value (even "0") as "handled" and
 	## silently shipped telemetry against the user's UI choice. (#530)
 	_clear_telemetry_env_vars()
@@ -1010,7 +1031,7 @@ func test_inject_when_env_present_but_falsey_and_setting_disabled() -> void:
 	host.free()
 	_clear_telemetry_env_vars()
 
-	assert_true(injected, "a falsey DISABLE_TELEMETRY must not suppress the UI opt-out")
+	assert_eq(injected, _TENV1, "a falsey DISABLE_TELEMETRY must not suppress the UI opt-out")
 	assert_true(env_present, "GODOT_AI_DISABLE_TELEMETRY must be injected for the spawn")
 
 

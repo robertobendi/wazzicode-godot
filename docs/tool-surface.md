@@ -13,15 +13,15 @@ The MCP tool surface is shaped to satisfy two pressures at once:
 1. **Anthropic tool-search clients** (`tool_search_tool_bm25_20251119` / `tool_search_tool_regex_20251119`) — non-core tools are tagged `meta={"defer_loading": True}` so the client only loads schemas it searches for.
 2. **Tool-count caps in non-search clients** (Antigravity, etc., that ignore `defer_loading` and refuse to start past ~40 tools) — long-tail verbs collapse into per-domain `<domain>_manage` rollups (`op="<verb>"` + `params` dict). Schema-aware clients still see every op via the dynamic `Literal[...]` enum built by `register_manage_tool` in `tools/_meta_tool.py`.
 
-Result: ~43 MCP tools (4 core + 15 named verbs + 24 rollups), down from a flat surface that crossed 100. Plugin command names over WebSocket stay independent — they're documented in `tool_catalog.gd` and unchanged by the rollup refactor.
+Result: 45 MCP tools (5 core + 16 deferred named verbs + 24 rollups), down from a flat surface that crossed 100. Plugin command names over WebSocket stay independent — they're documented in `tool_catalog.gd` and unchanged by the rollup refactor.
 
 - All tools follow `domain_action` namespacing — no ambiguous prefixes
-- Core tools loaded upfront (no `meta=`): `editor_state`, `scene_get_hierarchy`, `node_get_properties`, `session_activate`
+- Core tools loaded upfront (no `meta=`): `godot_orient`, `editor_state`, `scene_get_hierarchy`, `node_get_properties`, `session_activate`
 - Descriptions include natural-language keywords users would search for (e.g. "screenshot", "keybinding", "asset", "event / callback") so tool-search BM25 hits them
 - `server.py` `instructions=` includes a tool categories blurb listing the rollup map, so tool-search clients have a discovery map without reading every schema
 - Read-only `godot://...` resources mirror the cheap reads (`godot://editor/state`, `godot://node/{path}/properties`, `godot://script/{path}`, etc.) — they don't count against the tool cap, and aware clients prefer them. Tool form remains for `session_id`-pinned reads.
 
-For tool-capped clients without tool-search support, the server accepts `--exclude-domains audio,particle,...` (CLI flag and `EditorSettings`-backed dock UI) to drop entire domains' rollups and named tools while keeping the core 4 alive.
+For tool-capped clients without tool-search support, the server accepts `--exclude-domains audio,particle,...` (CLI flag and `EditorSettings`-backed dock UI) to drop entire domains' rollups and named tools while keeping the core 5 alive.
 
 When adding a new verb, prefer adding it as an op on the domain's existing `register_manage_tool(...)` call rather than registering a new top-level tool — only the highest-traffic verbs warrant a named tool (see "Adding a new tool" below).
 
@@ -39,7 +39,7 @@ When using `batch_execute`'s `commands[].command` field, use the **plugin comman
 2. Register it in `plugin.gd`: `_dispatcher.register_lazy("command_name", "<handler_key>", &"method")` (for a brand-new handler file, also add one `register_lazy_handler("<handler_key>", HANDLERS_DIR + "<file>.gd", [ctor args])` line — handlers are load()ed lazily at first dispatch, #736)
 3. Add a shared Python handler in `handlers/<domain>.py` that calls `runtime.send_command("command_name", params)`
 4. **Decide the MCP tool surface**:
-   - **High-traffic verb (top-20)** → register as a named tool in `tools/<domain>.py` with `@mcp.tool(meta=DEFER_META)` (import `DEFER_META` from `godot_ai.tools`; omit `meta` if it's one of the ~4 always-loaded core tools: `editor_state`, `scene_get_hierarchy`, `node_get_properties`, `session_activate`). Add `session_id: str = ""` as the last parameter and pass it in: `DirectRuntime.from_context(ctx, session_id=session_id or None)`.
+   - **High-traffic verb** → register as a named tool in `tools/<domain>.py` with `@mcp.tool(meta=DEFER_META)` (import `DEFER_META` from `godot_ai.tools`; omit `meta` if it's one of the ~5 always-loaded core tools: `godot_orient`, `editor_state`, `scene_get_hierarchy`, `node_get_properties`, `session_activate`). Add `session_id: str = ""` as the last parameter and pass it in: `DirectRuntime.from_context(ctx, session_id=session_id or None)`.
    - **Long-tail verb (default)** → add it to the `ops={}` dict for the existing `register_manage_tool(...)` call. The `<domain>_manage` rollup picks it up automatically; the meta-tool helper handles `session_id` extraction, JSON-string param coercion, and unknown-op error suggestions. No new tool registration needed.
 5. Update `tool_catalog.gd` to mirror the new tool list — `tests/unit/test_tool_domains.py` will fail with a paste-over-ready diff if you forget.
 6. Update the tool-surface blurb in `server.py` `instructions=` if the new verb is named (rollups are listed by tool, not by op).

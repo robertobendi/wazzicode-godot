@@ -645,7 +645,7 @@ def test_spawn_backend_reports_log_rotation_failure(
     assert exc_info.value.code == "BACKEND_START_FAILED"
     assert exc_info.value.data["log_path"] == str(log_path)
     assert exc_info.value.data["errno"] == errno.EACCES
-    assert "orphaned Godot AI backend" in exc_info.value.hint
+    assert "orphaned WazziCode Godot backend" in exc_info.value.hint
     assert "runtime directory is writable" in exc_info.value.hint
 
 

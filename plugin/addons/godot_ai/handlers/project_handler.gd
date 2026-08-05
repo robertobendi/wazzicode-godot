@@ -333,15 +333,15 @@ static func _run_project_already_running_message(decision: Dictionary) -> String
 			var live_errors: Array = decision.get("recent_errors", [])
 			if not live_errors.is_empty() and str(decision.get("recent_errors_scope", "none")) == "run":
 				return (
-					"Project was already running; the Godot AI game helper is live, but %d editor error%s surfaced during this run (first: %s). Check logs_read(source='editor', include_details=true)."
+					"Project was already running; the WazziCode Godot game helper is live, but %d editor error%s surfaced during this run (first: %s). Check logs_read(source='editor', include_details=true)."
 					% [live_errors.size(), "s" if live_errors.size() != 1 else "", _format_editor_error_summary(live_errors[0])]
 				)
-			return "Project was already running; the Godot AI game helper is live."
+			return "Project was already running; the WazziCode Godot game helper is live."
 		"not_live":
 			var errors: Array = decision.get("recent_errors", [])
 			var scope := str(decision.get("recent_errors_scope", "none"))
 			if not errors.is_empty() and scope == "run":
-				return "Project was already running but failed to load before the Godot AI game helper registered: %s. Check logs_read(source='editor', include_details=true)." % _format_editor_error_summary(errors[0])
+				return "Project was already running but failed to load before the WazziCode Godot game helper registered: %s. Check logs_read(source='editor', include_details=true)." % _format_editor_error_summary(errors[0])
 			if not errors.is_empty():
 				return "Project was already running but is not responding. A recent editor error may be related, but may predate this run: %s. Check logs_read(source='editor', include_details=true)." % _format_editor_error_summary(errors[0])
 			return "Project was already running but did not become live before the helper-ready window elapsed. Check logs_read(source='editor', include_details=true) and poll editor_state."
@@ -355,7 +355,7 @@ static func _run_project_already_running_message(decision: Dictionary) -> String
 		"no_helper":
 			return "Project was already running, but no _mcp_game_helper autoload is expected. Headless or custom-main-loop projects cannot confirm helper liveness."
 		"launching":
-			return "Project was already running and is still waiting for the Godot AI game helper to register. Poll editor_state shortly."
+			return "Project was already running and is still waiting for the WazziCode Godot game helper to register. Poll editor_state shortly."
 		"stopped":
 			return "Project was already marked playing by the editor, but no active game liveness run exists."
 		_:
@@ -404,13 +404,13 @@ static func _run_project_liveness_decision(status: Dictionary, errors_info: Dict
 			## errors in the success message so agents don't read a clean
 			## launch into a run that silently lost scripts.
 			decision["message"] = (
-				"Game launched and the Godot AI game helper is live, but %d editor error%s surfaced during startup (first: %s) — likely a script that failed to parse or load. Check logs_read(source='editor', include_details=true)."
+				"Game launched and the WazziCode Godot game helper is live, but %d editor error%s surfaced during startup (first: %s) — likely a script that failed to parse or load. Check logs_read(source='editor', include_details=true)."
 				% [recent_errors.size(), "s" if recent_errors.size() != 1 else "", _format_editor_error_summary(recent_errors[0])]
 			)
 			if truncated:
 				decision["message"] += " Editor logs since this run may be truncated; showing retained errors."
 		else:
-			decision["message"] = "Game launched and the Godot AI game helper is live."
+			decision["message"] = "Game launched and the WazziCode Godot game helper is live."
 	elif state == "break":
 		## #645: the game process is parked in a remote-debugger break. A
 		## boot-time parse error (GDScriptLanguage::debug_break_parse) produces
@@ -428,7 +428,7 @@ static func _run_project_liveness_decision(status: Dictionary, errors_info: Dict
 				summary = _format_editor_error_summary(recent_errors[0])
 			if summary.is_empty():
 				summary = "script parse/load error (reason not captured)"
-			decision["message"] = "Game hit a script error during startup and is frozen at a debugger break before the Godot AI game helper registered: %s. The run cannot continue; call project_manage(op='stop'), fix the error, and relaunch. Check logs_read(source='editor', include_details=true)." % summary
+			decision["message"] = "Game hit a script error during startup and is frozen at a debugger break before the WazziCode Godot game helper registered: %s. The run cannot continue; call project_manage(op='stop'), fix the error, and relaunch. Check logs_read(source='editor', include_details=true)." % summary
 		else:
 			var reason_suffix := (": %s" % break_reason) if not break_reason.is_empty() else ""
 			decision["resolve"] = true
@@ -436,7 +436,7 @@ static func _run_project_liveness_decision(status: Dictionary, errors_info: Dict
 	elif correlated_error:
 		decision["resolve"] = true
 		decision["liveness_status"] = "not_live"
-		decision["message"] = "Game launched but failed to load before the Godot AI game helper registered: %s. Check logs_read(source='editor', include_details=true)." % _format_editor_error_summary(recent_errors[0])
+		decision["message"] = "Game launched but failed to load before the WazziCode Godot game helper registered: %s. Check logs_read(source='editor', include_details=true)." % _format_editor_error_summary(recent_errors[0])
 		if truncated:
 			decision["message"] += " Editor logs since this run may be truncated; showing retained errors."
 	elif state == "not_live":
@@ -450,7 +450,7 @@ static func _run_project_liveness_decision(status: Dictionary, errors_info: Dict
 		decision["message"] = "Game launched, but no _mcp_game_helper autoload is expected. Headless or custom-main-loop projects cannot confirm helper liveness; use editor_state and viewport/editor tools where applicable."
 	elif state == "stopped":
 		decision["resolve"] = true
-		decision["message"] = "The play session stopped, or no active game liveness run exists, before the Godot AI game helper became live."
+		decision["message"] = "The play session stopped, or no active game liveness run exists, before the WazziCode Godot game helper became live."
 	elif state == "launching" and elapsed_msec >= ready_wait_msec:
 		decision["resolve"] = true
 		decision["message"] = "Game launched but is not yet live after %.1fs; it may still be booting. Poll editor_state and check logs_read(source='editor', include_details=true)." % (float(elapsed_msec) / 1000.0)

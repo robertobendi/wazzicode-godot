@@ -53,7 +53,7 @@ static var _load_mutex := Mutex.new()
 static var _stale_session := false
 
 const RESTART_TO_FINISH_UPDATE := (
-	"Godot AI was updated in this editor session. Restart the editor to finish the update."
+	"The MCP add-on was updated in this editor session. Restart the editor to finish the update."
 )
 
 

@@ -1,4 +1,4 @@
-"""FastMCP server — the main entry point for Godot AI."""
+"""FastMCP server — the main entry point for WazziCode Godot."""
 
 from __future__ import annotations
 
@@ -77,6 +77,7 @@ from godot_ai.tools.domains import CORE_BEARING_DOMAINS, CORE_TOOLS
 from godot_ai.tools.editor import register_editor_tools
 from godot_ai.tools.filesystem import register_filesystem_tools
 from godot_ai.tools.game import register_game_tools
+from godot_ai.tools.godot import register_godot_tools
 from godot_ai.tools.input_map import register_input_map_tools
 from godot_ai.tools.material import register_material_tools
 from godot_ai.tools.node import register_node_tools
@@ -144,6 +145,7 @@ _INSTRUCTIONS_PREAMBLE = "Production-grade Godot MCP server with persistent edit
 ## domain's exclusion (see CORE_BEARING_DOMAINS), so these lines are
 ## unconditional.
 _CORE_VERB_LINES: tuple[str, ...] = (
+    "  godot_orient                      — one-call project/editor orientation\n",
     "  editor_state                      — readiness, version, current scene\n",
     "  scene_get_hierarchy               — paginated scene tree walk\n",
     "  node_get_properties               — full property snapshot\n",
@@ -165,6 +167,7 @@ _NAMED_VERB_LINES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         (
             ("project_run", "project"),
             ("test_run", "testing"),
+            ("godot_verify", "godot"),
             ("batch_execute", "batch"),
             ("logs_read", "editor"),
         ),
@@ -507,7 +510,7 @@ def create_server(
         logger.info("Excluding tool domains: %s", ", ".join(sorted(exclude)))
 
     mcp = GodotAIFastMCP(
-        "Godot AI",
+        "WazziCode Godot",
         instructions=build_instructions(exclude),
         lifespan=_lifespan,
     )
@@ -719,6 +722,7 @@ def create_server(
     ## Core-bearing domains: always registered. ``include_non_core=False`` keeps
     ## only the core tool alive when the user excluded that domain.
     register_session_tools(mcp, include_non_core="session" not in exclude, exclude_domains=exclude)
+    register_godot_tools(mcp, include_non_core="godot" not in exclude)
     register_editor_tools(mcp, include_non_core="editor" not in exclude)
     register_scene_tools(mcp, include_non_core="scene" not in exclude)
     register_node_tools(mcp, include_non_core="node" not in exclude)

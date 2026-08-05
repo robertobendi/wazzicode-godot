@@ -1,53 +1,19 @@
-# Godot AI
+# WazziCode Godot add-on
 
-Connect AI assistants to a live Godot editor via the [Model Context Protocol](https://modelcontextprotocol.io/introduction) (MCP).
+This directory is the installable Godot editor add-on for WazziCode Godot, an MCP bridge for Codex, Claude, and other compatible AI coding clients.
 
-Godot AI bridges Claude Code, Codex, Antigravity, and other MCP clients with your editor — inspect scenes, create nodes, modify properties, run tests, search project files, and more, all from a prompt.
+## Install from this repository
 
-## Quick Start
+Copy this complete `godot_ai` directory into a project's `addons/` directory so the final path is:
 
-1. Copy `addons/godot_ai/` into your project's `addons/` folder
-2. Enable the plugin: **Project > Project Settings > Plugins > Godot AI**
-3. Pick your MCP client in the **Godot AI** dock and press **Configure**
+```text
+your-project/addons/godot_ai/plugin.cfg
+```
 
-The plugin auto-starts the MCP server and connects over WebSocket. No manual configuration required.
+Open the project in Godot 4.5 or newer, then enable **WazziCode Godot** under **Project > Project Settings > Plugins**. The dock can configure Codex, Claude, or both against the same local backend.
 
-## Requirements
+The repository-level bootstrap is the preferred installation path; see [the root setup guide](../../../SETUP.md).
 
-- Godot 4.5+ (4.7+ recommended)
-- [uv](https://docs.astral.sh/uv/) (used to install the Python server)
-  <details>
-  <summary>Install uv</summary>
+## Compatibility and attribution
 
-  **macOS / Linux:**
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
-
-  **Windows (PowerShell):**
-  ```powershell
-  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-  ```
-
-  **Homebrew (macOS / Linux):**
-  ```bash
-  brew install uv
-  ```
-
-  **pipx:**
-  ```bash
-  pipx install uv
-  ```
-
-  See the [uv install docs](https://docs.astral.sh/uv/getting-started/installation/) for more options.
-
-  </details>
-- An MCP client ([Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Codex](https://openai.com/index/codex/) | [Antigravity](https://www.antigravity.dev/))
-
-## Documentation
-
-Full documentation, contributing guide, and source code: [github.com/hi-godot/godot-ai](https://github.com/hi-godot/godot-ai)
-
-## License
-
-[MIT](LICENSE)
+The folder remains named `godot_ai` because the mature add-on lifecycle, saved resources, client launchers, and self-update process depend on that path. WazziCode Godot is derived from [hi-godot/godot-ai](https://github.com/hi-godot/godot-ai) and retains its MIT license. See the repository [NOTICE](../../../NOTICE.md) and [LICENSE](LICENSE).

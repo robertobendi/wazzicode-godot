@@ -1,4 +1,4 @@
-name: Release
+name: Upstream release (disabled in WazziCode fork)
 
 on:
   push:
@@ -27,6 +27,11 @@ jobs:
   # Requires a one-time pending-publisher setup on PyPI (see README or the
   # PR description).
   publish-pypi:
+    # This workflow belongs to the inherited godot-ai distribution and its
+    # upstream PyPI trusted publisher. It must never publish from the
+    # WazziCode derivative until that project has its own package name,
+    # signing key, and release process.
+    if: github.repository == 'hi-godot/godot-ai'
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # required for PyPI OIDC
@@ -80,6 +85,7 @@ jobs:
   # plugin ZIP download becomes available — prevents a racing user from
   # installing the plugin and having uvx fail to resolve the Python package.
   build-plugin-zip:
+    if: github.repository == 'hi-godot/godot-ai'
     runs-on: ubuntu-latest
     needs: publish-pypi
 

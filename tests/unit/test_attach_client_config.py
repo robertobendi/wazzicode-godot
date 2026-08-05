@@ -54,12 +54,21 @@ def test_rendered_attach_argv_is_accepted_by_attach_parser() -> None:
     assert namespace.port == 8123
     assert namespace.ws_port == 9623
     assert namespace.exclude_domains == "audio,particle"
-    assert namespace.disable_telemetry is False
+    assert namespace.disable_telemetry is True
+    assert namespace.enable_telemetry is False
 
-    ## The resolver appends --disable-telemetry when the editor preference is
-    ## off; prove the parser accepts the extended argv as rendered.
-    opted_out = _parser().parse_args([*args[attach_index + 1 :], "--disable-telemetry"])
+    ## The resolver always carries the editor's explicit preference. Prove the
+    ## parser accepts both generated variants.
+    base_args = [
+        arg
+        for arg in args[attach_index + 1 :]
+        if arg not in ("--enable-telemetry", "--disable-telemetry")
+    ]
+    opted_out = _parser().parse_args([*base_args, "--disable-telemetry"])
     assert opted_out.disable_telemetry is True
+
+    opted_in = _parser().parse_args([*base_args, "--enable-telemetry"])
+    assert opted_in.enable_telemetry is True
 
 
 def test_gdscript_json_fixture_round_trips_through_json_and_attach_parser() -> None:

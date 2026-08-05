@@ -10,13 +10,14 @@ extends RefCounted
 ## against actual tool registration and fails CI when they drift; the
 ## failure message prints the up-to-date catalog body for paste-over.
 ##
-## The four core tools are always registered and cannot be excluded — they
+## The five core tools are always registered and cannot be excluded — they
 ## render as a single grayed-out "Core" row in the UI. Each non-core domain
 ## now exposes one or two named verbs plus a single rolled-up
 ## `<domain>_manage` tool.
 
 const CORE_TOOLS := [
 	"editor_state",
+	"godot_orient",
 	"node_get_properties",
 	"scene_get_hierarchy",
 	"session_activate",
@@ -47,6 +48,7 @@ const DOMAINS := [
 	{"id": "editor", "label": "editor", "count": 4, "tools": ["editor_manage", "editor_reload_plugin", "editor_screenshot", "logs_read"]},
 	{"id": "filesystem", "label": "filesystem", "count": 1, "tools": ["filesystem_manage"]},
 	{"id": "game", "label": "game", "count": 1, "tools": ["game_manage"]},
+	{"id": "godot", "label": "godot", "count": 1, "tools": ["godot_verify"]},
 	{"id": "input_map", "label": "input_map", "count": 1, "tools": ["input_map_manage"]},
 	{"id": "material", "label": "material", "count": 1, "tools": ["material_manage"]},
 	{"id": "node", "label": "node", "count": 4, "tools": ["node_create", "node_find", "node_manage", "node_set_property"]},

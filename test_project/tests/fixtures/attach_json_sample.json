@@ -15,6 +15,7 @@
     "--ws-port",
     "9623",
     "--exclude-domains",
-    "audio,particle"
+    "audio,particle",
+    "--disable-telemetry"
   ]
 }

@@ -30,8 +30,9 @@ from godot_ai.tools._meta_tool import MANAGE_TOOL_HANDLERS
 ## byte — if this fails, the no-exclusion capability surface changed.
 _FROZEN_NO_EXCLUSION_TEXT = (
     "Production-grade Godot MCP server with persistent editor integration.\n\n"
-    "Tool surface — 19 named verbs + per-domain `<domain>_manage` rollups:\n\n"
+    "Tool surface — 21 named verbs + per-domain `<domain>_manage` rollups:\n\n"
     "Core named verbs (always loaded — common reads + high-traffic writes):\n"
+    "  godot_orient                      — one-call project/editor orientation\n"
     "  editor_state                      — readiness, version, current scene\n"
     "  scene_get_hierarchy               — paginated scene tree walk\n"
     "  node_get_properties               — full property snapshot\n"
@@ -39,7 +40,7 @@ _FROZEN_NO_EXCLUSION_TEXT = (
     "  node_create / node_set_property / node_find\n"
     "  scene_open / scene_save\n"
     "  script_create / script_attach / script_patch\n"
-    "  project_run, test_run, batch_execute, logs_read\n"
+    "  project_run, test_run, godot_verify, batch_execute, logs_read\n"
     "  editor_screenshot, editor_reload_plugin, animation_create\n\n"
     "Domain rollups (one tool per domain; pass `op=` + a `params` dict):\n"
     "  scene_manage     create, save_as, get_roots\n"
@@ -148,6 +149,16 @@ def test_core_bearing_exclusion_names_surviving_core_tools():
     )
 
 
+def test_godot_domain_exclusion_keeps_orient_and_drops_verify():
+    text = build_instructions({"godot"})
+
+    assert "godot_orient" in text
+    assert "godot_verify" not in text.split("Resources (")[0]
+    assert (
+        "Core tools for core-bearing domains remain available: godot_orient." in text
+    )
+
+
 # --- named-verb count and tool mentions track live registration ---
 
 
@@ -156,6 +167,7 @@ def test_core_bearing_exclusion_names_surviving_core_tools():
     [
         (),
         ("audio",),
+        ("godot",),
         ("editor",),
         ("script", "animation"),
         ("node", "editor", "scene"),

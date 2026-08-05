@@ -1,4 +1,4 @@
-name: Bump and Release
+name: Upstream bump and release (disabled in WazziCode fork)
 
 # Manually bumps plugin.cfg + pyproject.toml, commits, tags, pushes, and
 # then dispatches release.yml against the new tag — release.yml publishes
@@ -31,6 +31,9 @@ env:
 
 jobs:
   bump:
+    # Guard the inherited upstream release automation. The WazziCode fork
+    # intentionally has no package/signing release channel yet.
+    if: github.repository == 'hi-godot/godot-ai'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -617,7 +617,7 @@ func test_run_project_response_carries_liveness_shape_when_already_running() -> 
 	assert_eq(response.data.game_status.session_active, true)
 	assert_eq(response.data.helper_live, true)
 	assert_eq(response.data.session_active, true)
-	assert_eq(response.data.reason, "Project was already running; the Godot AI game helper is live.")
+	assert_eq(response.data.reason, "Project was already running; the WazziCode Godot game helper is live.")
 
 
 # ----- stop_project -----

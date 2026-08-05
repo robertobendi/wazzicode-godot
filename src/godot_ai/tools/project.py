@@ -55,7 +55,7 @@ def register_project_tools(mcp: FastMCP) -> None:
         ``data.was_already_running=true`` (no scene switch). To switch scenes,
         call ``project_manage(op="stop")`` first, then ``project_run`` again.
 
-        After starting playback, waits briefly for the Godot AI game helper to
+        After starting playback, waits briefly for the WazziCode Godot game helper to
         check in. The response includes ``game_status``, ``helper_live``
         (status == "live"), ``session_active`` (status not in {"not_live",
         "stopped"}), and any ``recent_errors`` observed during the run window.

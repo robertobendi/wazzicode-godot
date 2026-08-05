@@ -1,4 +1,4 @@
-"""CLI entry point for the client-owned Godot AI stdio bridge."""
+"""CLI entry point for the client-owned WazziCode Godot stdio bridge."""
 
 from __future__ import annotations
 
@@ -21,7 +21,10 @@ from godot_ai.tools.domains import parse_exclude_list
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="godot-ai attach", description="Godot AI stdio bridge")
+    parser = argparse.ArgumentParser(
+        prog="godot-ai attach",
+        description="WazziCode Godot stdio bridge (legacy godot-ai command)",
+    )
     parser.add_argument(
         "--version",
         action="version",
@@ -34,10 +37,16 @@ def _parser() -> argparse.ArgumentParser:
         default="",
         help="Comma-separated backend tool domains to exclude",
     )
-    parser.add_argument(
+    telemetry = parser.add_mutually_exclusive_group()
+    telemetry.add_argument(
+        "--enable-telemetry",
+        action="store_true",
+        help="Opt in to anonymous telemetry in this bridge and any backend it spawns",
+    )
+    telemetry.add_argument(
         "--disable-telemetry",
         action="store_true",
-        help="Disable anonymous telemetry in this bridge and any backend it spawns",
+        help="Force-disable anonymous telemetry in this bridge and any backend it spawns",
     )
     return parser
 
@@ -77,13 +86,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     except ValueError as exc:
         parser.error(str(exc))
     if args.disable_telemetry:
-        ## The editor's telemetry opt-out only reaches plugin-spawned servers
-        ## via env injection at spawn time (server_lifecycle.gd). An attach
-        ## backend is spawned by THIS process with a copy of os.environ
-        ## (ensure._backend_spawn_env), so the client entry carries the opt-out
-        ## as an argv flag and the bridge translates it back into the env
-        ## contract telemetry.py already honors.
+        ## An attach backend is spawned by THIS process with a copy of
+        ## os.environ (ensure._backend_spawn_env), so the generated client
+        ## entry carries the privacy preference as argv and the bridge
+        ## translates it into the env contract telemetry.py honors.
         os.environ["GODOT_AI_DISABLE_TELEMETRY"] = "true"
+    elif args.enable_telemetry:
+        os.environ["GODOT_AI_ENABLE_TELEMETRY"] = "true"
     try:
         asyncio.run(run_attach(args.port, args.ws_port, exclude_domains))
     except AttachStartupError as exc:

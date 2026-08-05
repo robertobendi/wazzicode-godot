@@ -477,7 +477,7 @@ func _enter_tree() -> void:
 
 	# Dock panel
 	_dock = Dock.new()
-	_dock.name = "Godot AI"
+	_dock.name = "WazziCode Godot"
 	_dock.setup(_connection, _log_buffer, self)
 	add_control_to_dock(DOCK_SLOT_RIGHT_BL, _dock)
 	_startup_trace_phase("dock_attached")
@@ -1861,10 +1861,10 @@ func start_dev_server() -> void:
 			var new_pp := worktree_src if prev_pythonpath.is_empty() else worktree_src + sep + prev_pythonpath
 			OS.set_environment("PYTHONPATH", new_pp)
 
-		var injected_telemetry: bool = _lifecycle._inject_telemetry_env()
+		var injected_telemetry: String = _lifecycle._inject_telemetry_env()
 		var pid := OS.create_process(cmd, inner_args)
-		if injected_telemetry:
-			OS.unset_environment("GODOT_AI_DISABLE_TELEMETRY")
+		if not injected_telemetry.is_empty():
+			OS.unset_environment(injected_telemetry)
 
 		## Restore PYTHONPATH immediately — the spawned child has already
 		## copied the env, so the editor's own process state returns to

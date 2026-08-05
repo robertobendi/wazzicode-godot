@@ -1,7 +1,7 @@
 """Unit tests for ``godot_ai.telemetry``.
 
 Covers:
-* ``TelemetryConfig`` opt-out + endpoint validation
+* ``TelemetryConfig`` opt-in, authoritative disable controls, and endpoint validation
 * ``TelemetryCollector`` queue + worker behavior
 * ``hash_session_id`` shape and stability
 * customer_uuid persistence
@@ -90,24 +90,31 @@ class TestHashSessionId:
 
 
 class TestTelemetryConfig:
-    def test_default_enabled_uses_baked_in_endpoint(
+    def test_default_disabled_does_not_create_local_state(
         self, monkeypatch, clean_env, isolated_data_dir
     ) -> None:
-        """A fresh install with no env overrides should resolve to the
-        baked-in production endpoint so the binary actually reports.
-        Regression test for "telemetry on by default" — empty default
-        endpoint used to mean zero traffic even when enabled."""
+        """A fresh install stays inert until the user explicitly opts in."""
+        monkeypatch.delenv("GODOT_AI_ENABLE_TELEMETRY", raising=False)
+        monkeypatch.delenv("GODOT_AI_TELEMETRY_ENDPOINT", raising=False)
+        config = tel.TelemetryConfig()
+        assert config.enabled is False
+        assert config.data_dir is None
+        assert config.uuid_file is None
+        assert config.milestones_file is None
+
+    def test_explicit_opt_in_uses_baked_in_endpoint(
+        self, monkeypatch, clean_env, isolated_data_dir
+    ) -> None:
         monkeypatch.delenv("GODOT_AI_TELEMETRY_ENDPOINT", raising=False)
         config = tel.TelemetryConfig()
         assert config.enabled is True
         assert config.endpoint == tel.TelemetryConfig.DEFAULT_ENDPOINT
-        ## The bake-in must be a real https URL, not the empty string.
         assert config.endpoint.startswith("https://")
 
     def test_isolated_fixture_uses_invalid_endpoint_leak_guard(
         self, clean_env, isolated_data_dir
     ) -> None:
-        """Unit tests remove opt-out to exercise enabled telemetry.
+        """Unit tests explicitly opt in to exercise enabled telemetry.
 
         The shared fixture must still prevent an unmocked background
         worker from POSTing to the baked-in production endpoint.
@@ -127,11 +134,32 @@ class TestTelemetryConfig:
         assert tel.TelemetryConfig().enabled is False
 
     @pytest.mark.parametrize("value", ["", "0", "false", "no", "anything-else"])
-    def test_falsy_variants_keep_enabled(
+    def test_falsy_disable_variants_do_not_override_explicit_opt_in(
         self, monkeypatch, clean_env, isolated_data_dir, value: str
     ) -> None:
         monkeypatch.setenv("GODOT_AI_DISABLE_TELEMETRY", value)
         assert tel.TelemetryConfig().enabled is True
+
+    @pytest.mark.parametrize("value", ["1", "true", "TRUE", "YES", "On"])
+    def test_opt_in_truthy_variants(
+        self, monkeypatch, clean_env, isolated_data_dir, value: str
+    ) -> None:
+        monkeypatch.setenv("GODOT_AI_ENABLE_TELEMETRY", value)
+        assert tel.TelemetryConfig().enabled is True
+
+    @pytest.mark.parametrize("value", ["", "0", "false", "no", "anything-else"])
+    def test_falsy_opt_in_variants_stay_disabled(
+        self, monkeypatch, clean_env, isolated_data_dir, value: str
+    ) -> None:
+        monkeypatch.setenv("GODOT_AI_ENABLE_TELEMETRY", value)
+        assert tel.TelemetryConfig().enabled is False
+
+    def test_disable_env_wins_over_opt_in(
+        self, monkeypatch, clean_env, isolated_data_dir
+    ) -> None:
+        monkeypatch.setenv("GODOT_AI_ENABLE_TELEMETRY", "true")
+        monkeypatch.setenv("DISABLE_TELEMETRY", "true")
+        assert tel.TelemetryConfig().enabled is False
 
     def test_accepts_https_endpoint(self, monkeypatch, clean_env, isolated_data_dir) -> None:
         monkeypatch.setenv("GODOT_AI_TELEMETRY_ENDPOINT", "https://example.com/x")
@@ -190,7 +218,7 @@ class TestTelemetryConfigCleanup:
     def test_cleanup_deletes_existing_files(
         self, monkeypatch, clean_env, isolated_data_dir: Path
     ) -> None:
-        """Both persisted files are removed when opt-out is active."""
+        """Both persisted files are removed when a kill switch is active."""
         monkeypatch.setenv("GODOT_AI_DISABLE_TELEMETRY", "true")
         # Pre-create the files so cleanup has something to delete.
         (isolated_data_dir / "customer_uuid.txt").write_text("fake-uuid")
@@ -204,7 +232,7 @@ class TestTelemetryConfigCleanup:
     def test_cleanup_is_noop_when_files_absent(
         self, monkeypatch, clean_env, isolated_data_dir: Path
     ) -> None:
-        """No error when files don't exist (fresh opt-out)."""
+        """No error when files don't exist (fresh disabled install)."""
         monkeypatch.setenv("GODOT_AI_DISABLE_TELEMETRY", "true")
         # Ensure files are absent.
         for name in ("customer_uuid.txt", "milestones.json"):
@@ -362,7 +390,7 @@ class TestTelemetryCollector:
     def test_disabled_does_not_touch_disk(
         self, monkeypatch, clean_env, isolated_data_dir: Path
     ) -> None:
-        """Opt-out must be fully side-effect-free: no UUID file, no
+        """Disabled telemetry must be fully side-effect-free: no UUID file, no
         milestones file, no worker thread. Locks in the contract
         documented in docs/TELEMETRY.md.
         """

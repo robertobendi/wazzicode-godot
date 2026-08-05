@@ -339,7 +339,7 @@ def _startup_mcp_error(exc: AttachStartupError) -> McpError:
 def _backend_unstable_mcp_error() -> McpError:
     return _mcp_error(
         ErrorCode.PLUGIN_DISCONNECTED,
-        "The shared Godot AI backend changed or failed twice during this request.",
+        "The shared WazziCode Godot backend changed or failed twice during this request.",
         "The request is safe to retry; restarting the MCP client is not required.",
         retryable=True,
     )
@@ -348,9 +348,9 @@ def _backend_unstable_mcp_error() -> McpError:
 def _backend_unavailable_result() -> ToolResult:
     return _error_result(
         ErrorCode.PLUGIN_DISCONNECTED,
-        "The shared Godot AI backend is not accepting connections.",
+        "The shared WazziCode Godot backend is not accepting connections.",
         "The backend may be crash-looping. Inspect backend-<HTTP-port>.log in the "
-        "Godot AI runtime directory, correct the reported failure, then retry the "
+        "WazziCode Godot runtime directory, correct the reported failure, then retry the "
         "same call. Restarting the MCP client is not required.",
         retryable=True,
     )
@@ -548,7 +548,7 @@ def create_attach_proxy(
             init_timeout=DEFAULT_INIT_TIMEOUT_SECONDS,
         )
 
-    proxy = FastMCP("Godot AI attach")
+    proxy = FastMCP("WazziCode Godot attach")
     proxy.add_provider(AttachProxyProvider(backend_client))
     # First-added is outermost, so insert recovery at position zero to catch
     # provider initialization and operation failures.

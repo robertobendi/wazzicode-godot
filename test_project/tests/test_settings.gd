@@ -6,9 +6,11 @@ extends McpTestSuite
 
 const _TENV1 := "GODOT_AI_DISABLE_TELEMETRY"
 const _TENV2 := "DISABLE_TELEMETRY"
+const _TENV3 := "GODOT_AI_ENABLE_TELEMETRY"
 
 var _saved_tenv1: Variant = null
 var _saved_tenv2: Variant = null
+var _saved_tenv3: Variant = null
 var _saved_telemetry_setting: Variant = null
 
 
@@ -19,6 +21,7 @@ func suite_name() -> String:
 func suite_setup(_ctx: Dictionary) -> void:
 	_saved_tenv1 = OS.get_environment(_TENV1) if OS.has_environment(_TENV1) else null
 	_saved_tenv2 = OS.get_environment(_TENV2) if OS.has_environment(_TENV2) else null
+	_saved_tenv3 = OS.get_environment(_TENV3) if OS.has_environment(_TENV3) else null
 	var es := EditorInterface.get_editor_settings()
 	if es.has_setting(McpSettings.SETTING_TELEMETRY_ENABLED):
 		_saved_telemetry_setting = es.get_setting(McpSettings.SETTING_TELEMETRY_ENABLED)
@@ -27,6 +30,7 @@ func suite_setup(_ctx: Dictionary) -> void:
 func suite_teardown() -> void:
 	_restore_env(_TENV1, _saved_tenv1)
 	_restore_env(_TENV2, _saved_tenv2)
+	_restore_env(_TENV3, _saved_tenv3)
 	# NB: If originally unset, _saved_telemetry_setting will be null and this will unset any
 	# value set by tests. No-op if already unset and then set to null.
 	EditorInterface.get_editor_settings().set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, _saved_telemetry_setting)
@@ -96,30 +100,42 @@ func test_env_truthy_returns_false_when_var_absent() -> void:
 func test_telemetry_enabled_returns_false_when_disable_env_set() -> void:
 	OS.set_environment(_TENV1, "1")
 	OS.unset_environment(_TENV2)
+	OS.set_environment(_TENV3, "true")
 	assert_false(McpSettings.telemetry_enabled())
 
 func test_telemetry_enabled_returns_false_when_alt_env_set() -> void:
 	OS.unset_environment(_TENV1)
 	OS.set_environment(_TENV2, "true")
+	OS.set_environment(_TENV3, "true")
 	assert_false(McpSettings.telemetry_enabled())
+
+func test_telemetry_enabled_returns_true_when_enable_env_set() -> void:
+	OS.unset_environment(_TENV1)
+	OS.unset_environment(_TENV2)
+	OS.set_environment(_TENV3, "yes")
+	EditorInterface.get_editor_settings().set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, false)
+	assert_true(McpSettings.telemetry_enabled())
 
 func test_telemetry_enabled_reads_editor_setting_when_no_env() -> void:
 	OS.unset_environment(_TENV1)
 	OS.unset_environment(_TENV2)
+	OS.unset_environment(_TENV3)
 	EditorInterface.get_editor_settings().set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, false)
 	assert_false(McpSettings.telemetry_enabled())
 	EditorInterface.get_editor_settings().set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, true)
 	assert_true(McpSettings.telemetry_enabled())
 
-func test_telemetry_enabled_defaults_true_when_no_env_and_no_setting() -> void:
+func test_telemetry_enabled_defaults_false_when_no_env_and_no_setting() -> void:
 	OS.unset_environment(_TENV1)
 	OS.unset_environment(_TENV2)
+	OS.unset_environment(_TENV3)
 	var es := EditorInterface.get_editor_settings()
 	es.set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, null)
-	assert_true(McpSettings.telemetry_enabled(), "absent setting must default to enabled")
+	assert_false(McpSettings.telemetry_enabled(), "absent setting must default to disabled")
 
 func test_telemetry_env_overrides_editor_setting() -> void:
 	OS.set_environment(_TENV1, "1")
+	OS.set_environment(_TENV3, "1")
 	EditorInterface.get_editor_settings().set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, true)
 	assert_false(McpSettings.telemetry_enabled(),
 		"env var opt-out must win over EditorSetting true")

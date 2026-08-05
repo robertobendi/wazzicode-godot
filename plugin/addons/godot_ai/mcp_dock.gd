@@ -94,8 +94,8 @@ var _tools_reset_btn: Button
 var _tools_dirty_warning: Label
 var _tools_close_confirm: ConfirmationDialog
 var _telemetry_toggle: CheckButton
-var _telemetry_pending_enabled: bool = true
-var _telemetry_saved_enabled: bool = true
+var _telemetry_pending_enabled: bool = false
+var _telemetry_saved_enabled: bool = false
 
 # Settings tab (secondary window, Tab 3) — LAN opt-in (#507). Developer-
 # mode-gated "Allow remote hosts (CIDR)" field whose value feeds
@@ -737,7 +737,7 @@ func _build_ui() -> void:
 
 	_client_empty_cta_btn = Button.new()
 	_client_empty_cta_btn.text = "Configure an AI client ->"
-	_client_empty_cta_btn.tooltip_text = "Open the Clients tab to configure an AI coding client for this Godot AI server."
+	_client_empty_cta_btn.tooltip_text = "Open the Clients tab to configure Codex, Claude, or another AI coding client for WazziCode Godot."
 	_client_empty_cta_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_client_empty_cta_btn.visible = false
 	_client_empty_cta_btn.pressed.connect(_on_open_clients_window)
@@ -760,7 +760,7 @@ func _build_ui() -> void:
 	_body.add_child(_drift_banner)
 
 	_clients_window = Window.new()
-	_clients_window.title = "Godot AI Settings"
+	_clients_window.title = "WazziCode Godot Settings"
 	## `Vector2i * float` yields Vector2; wrap the result back to Vector2i.
 	_clients_window.min_size = Vector2i(Vector2(560, 460) * EditorInterface.get_editor_scale())
 	_clients_window.visible = false
@@ -1384,13 +1384,15 @@ static func _client_transport_tag(client_id: String) -> String:
 # --- Telemetry setting persistence ---
 
 
-## Returns true if GODOT_AI_DISABLE_TELEMETRY or DISABLE_TELEMETRY is set
-## to a truthy value, false if either is set and non-truthy, null if neither
-## env var is present at all.
-func _is_telemetry_disabled_via_env() -> Variant:
-	if not (OS.has_environment("GODOT_AI_DISABLE_TELEMETRY") or OS.has_environment("DISABLE_TELEMETRY")):
-		return null
-	return McpSettings.env_truthy("GODOT_AI_DISABLE_TELEMETRY") or McpSettings.env_truthy("DISABLE_TELEMETRY")
+## Returns the effective environment preference, or null when no truthy
+## telemetry control is present. Disable variables are checked first and
+## remain authoritative if an enable variable is also set.
+func _telemetry_env_preference() -> Variant:
+	if McpSettings.env_truthy("GODOT_AI_DISABLE_TELEMETRY") or McpSettings.env_truthy("DISABLE_TELEMETRY"):
+		return false
+	if McpSettings.env_truthy("GODOT_AI_ENABLE_TELEMETRY"):
+		return true
+	return null
 
 
 ## Reads the telemetry preference, applying env-var override when present.
@@ -1399,23 +1401,21 @@ func _is_telemetry_disabled_via_env() -> Variant:
 ## has been created.
 func _load_telemetry_setting() -> void:
 	var es := EditorInterface.get_editor_settings()
-	var env_disabled = _is_telemetry_disabled_via_env()
+	var env_preference = _telemetry_env_preference()
 
 	var enabled: bool
-	if env_disabled != null:
-		## Env var present: resolve and save to EditorSettings so future sessions without
-		## the env var honour the last-set value.
-		enabled = not bool(env_disabled)
-		if es != null:
-			es.set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, enabled)
+	if env_preference != null:
+		## Environment choices control this process only; do not turn a temporary
+		## shell opt-in into a persistent editor preference.
+		enabled = bool(env_preference)
 	else:
 		## No env var: read (or create) the EditorSettings key.
 		if es != null and es.has_setting(McpSettings.SETTING_TELEMETRY_ENABLED):
 			enabled = bool(es.get_setting(McpSettings.SETTING_TELEMETRY_ENABLED))
 		else:
-			enabled = true
+			enabled = false
 			if es != null:
-				es.set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, true)
+				es.set_setting(McpSettings.SETTING_TELEMETRY_ENABLED, false)
 
 	_telemetry_pending_enabled = enabled
 	_telemetry_saved_enabled = enabled
@@ -1423,15 +1423,15 @@ func _load_telemetry_setting() -> void:
 	if _telemetry_toggle == null:
 		return
 	_telemetry_toggle.set_pressed_no_signal(enabled)
-	if env_disabled != null:
+	if env_preference != null:
 		_telemetry_toggle.disabled = true
 		_telemetry_toggle.tooltip_text = (
 			"Telemetry is controlled by an environment variable "
-			+ "(GODOT_AI_DISABLE_TELEMETRY / DISABLE_TELEMETRY)."
+			+ "(GODOT_AI_ENABLE_TELEMETRY / GODOT_AI_DISABLE_TELEMETRY / DISABLE_TELEMETRY)."
 		)
 	else:
 		_telemetry_toggle.disabled = false
-		_telemetry_toggle.tooltip_text = ""
+		_telemetry_toggle.tooltip_text = "Off by default. Enable to share anonymous usage data with the upstream telemetry service."
 
 
 func _on_telemetry_toggled(pressed: bool) -> void:
@@ -1769,7 +1769,7 @@ func _refresh_setup_status() -> void:
 		var install_btn := Button.new()
 		install_btn.text = "How to install uv"
 		install_btn.tooltip_text = (
-			"Opens the official uv installation docs. Godot AI deliberately does "
+			"Opens the official uv installation docs. WazziCode Godot deliberately does "
 			+ "not run the installer for you — see _on_install_uv."
 		)
 		install_btn.pressed.connect(_on_install_uv)
@@ -2350,7 +2350,7 @@ func _build_tools_tab(tabs: TabContainer) -> void:
 	var telemetry_row := HBoxContainer.new()
 	telemetry_row.add_theme_constant_override("separation", 8)
 	var telemetry_label := Label.new()
-	telemetry_label.text = "Telemetry"
+	telemetry_label.text = "Anonymous telemetry (opt in)"
 	telemetry_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	telemetry_row.add_child(telemetry_label)
 	_telemetry_toggle = CheckButton.new()

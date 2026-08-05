@@ -1,9 +1,9 @@
 # Available Tools
 
-Godot AI exposes ~43 MCP tools — 19 high-traffic verbs as named tools, plus
-one rolled-up `<domain>_manage` per domain that takes `op="..."` + a `params`
-dict. The rollup pattern keeps the tool count well below the 100-tool caps
-some clients enforce while still exposing every action.
+WazziCode Godot exposes 45 MCP tools — 21 high-traffic verbs as named tools, plus 24
+rolled-up `<domain>_manage` tools that take `op="..."` + a `params` dict. The
+rollup pattern keeps the tool count well below the 100-tool caps some clients
+enforce while still exposing every action.
 
 The plugin command surface (over WebSocket) is unchanged; only the MCP tool
 names move. Inside `batch_execute`'s `commands[].command` field, keep using
@@ -14,6 +14,7 @@ not the MCP tool names.
 
 | Tool | Description |
 |------|-------------|
+| `godot_orient` | One-call bounded snapshot of the active session, project/editor readiness, play state, scene hierarchy, selection, recent diagnostics, and Git worktree |
 | `editor_state` | Editor version, project name, current scene, readiness, play state, and game liveness status |
 | `scene_get_hierarchy` | Paginated scene tree walk (depth, offset, limit) |
 | `node_get_properties` | Full property snapshot of a node |
@@ -29,10 +30,25 @@ not the MCP tool names.
 | `script_create` / `script_attach` / `script_patch` | Create, attach, anchor-edit GDScript files |
 | `project_run` | Play the project, then wait briefly for game liveness (autosave persists in-memory MCP edits unless `autosave=False`) |
 | `test_run` | Run GDScript test suites in the editor — see [testing.md](testing.md) for writing suites and the `McpTestSuite` API |
+| `godot_verify` | Composite live verification: readiness/staleness, newest bounded editor/game diagnostics, and optional in-editor tests with an explicit verdict |
 | `logs_read` | Read plugin / game / editor / combined log buffers. `source="editor"` surfaces parse errors, GDScript reload warnings, @tool/EditorPlugin runtime errors, push_error/push_warning, and visible Debugger dock Errors-tab rows — use this when the editor's Output or Debugger Errors panel shows red/yellow rows |
 | `editor_screenshot` | Capture the editor 3D viewport (`viewport`), editor 2D viewport (`viewport_2d`), cinematic Camera3D render (`cinematic`), or running game framebuffer (`game`) |
 | `editor_reload_plugin` | Reload the plugin and wait for reconnect (works with external and plugin-managed servers) |
 | `animation_create` | Create an Animation clip (auto-creates AnimationPlayer + library if missing) |
+
+`godot_orient(task="...")` is the recommended first call when entering or
+resuming a project. The optional task is echoed as bounded context; it never
+drives hidden actions. Scene nodes, selected paths, diagnostics, and Git paths
+are capped, and every truncated or unavailable component says so explicitly.
+
+`godot_verify(run_tests=false)` performs a live editor probe and reads the
+newest bounded editor/game diagnostic windows without changing project
+content. Set `run_tests=true` to additionally invoke the existing in-editor
+test runner; `suite`, `test_name`, and `exclude_test_name` narrow that run.
+The verdict is `passed`, `passed_with_warnings`, `failed`, or `blocked`, with
+an action attached to each failure. The workflow tool itself does not author
+or save files, but project-owned test scripts are arbitrary code and remain
+responsible for their own side effects.
 
 `logs_read` also accepts `include_details=true` for `source="editor"`,
 `source="game"`, and `source="all"`. Detailed entries include the original
