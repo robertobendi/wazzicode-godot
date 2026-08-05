@@ -67,7 +67,7 @@ Upstream = "https://github.com/hi-godot/godot-ai"
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
-    "pytest-cov>=6.0",
+    "pytest-cov>=7.1.0",
     "hypothesis>=6.0",
     "ruff>=0.8",
     # Used by script/ci-game-capture-smoke to decode PNG frames from the
