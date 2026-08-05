@@ -44,7 +44,7 @@ dependencies = [
     # The attach bridge uses AsyncClient, transport errors, and granular
     # connect/read/write/pool timeouts directly. Do not rely on FastMCP's
     # transitive installation for this public runtime dependency.
-    "httpx>=0.27",
+    "httpx>=0.28.1",
     # asgi.py imports these directly; declare them instead of relying on
     # them arriving transitively through fastmcp (audit backlog).
     "uvicorn>=0.23",
