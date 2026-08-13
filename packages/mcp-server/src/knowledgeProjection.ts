@@ -8,7 +8,7 @@ import type {
   KnowledgeManifest,
   KnowledgeProvenance,
   KnowledgeRelation,
-} from "@uvibe/project-brain";
+} from "@gvibe/project-brain";
 
 export const KNOWLEDGE_QUERY_MAX_BYTES = 16 * 1024;
 export const KNOWLEDGE_RELATION_QUERY_MAX_BYTES = 32 * 1024;
@@ -86,7 +86,7 @@ export function projectKnowledgeManifest(manifest: KnowledgeManifest) {
       id: clipMiddle(manifest.project.id, MAX_ID_CHARS),
       path: manifest.project.path,
       name: clipText(manifest.project.name, MAX_NAME_CHARS),
-      isUnityProject: manifest.project.isUnityProject,
+      isGodotProject: manifest.project.isGodotProject,
     },
     coverage: {
       cap: manifest.coverage.cap,

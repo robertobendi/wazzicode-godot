@@ -1,9 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z, ZodRawShape } from "zod";
-import { PRODUCT_VERSION, ToolEnvelope, err } from "@uvibe/core";
-import { BridgeClient, createHttpBridgeClient, HttpBridgeOptions, timeoutForMethod } from "@uvibe/bridge-client";
-import { ensureBrainCurrent, readKnowledgeBase, type KnowledgeBase } from "@uvibe/project-brain";
+import { PRODUCT_VERSION, ToolEnvelope, err } from "@gvibe/core";
+import { BridgeClient, createHttpBridgeClient, HttpBridgeOptions, timeoutForMethod } from "@gvibe/bridge-client";
+import { ensureBrainCurrent, readKnowledgeBase, type KnowledgeBase } from "@gvibe/project-brain";
 import { createMockBridgeClient } from "./mockBridge.js";
 import { allTools } from "./tools/index.js";
 import { AnyToolDef, ToolContext } from "./registry.js";
@@ -51,16 +51,16 @@ export interface ServeOptions {
 }
 
 export function buildContext(opts: ServeOptions = {}): ToolContext {
-  const projectPath = opts.projectPath ?? process.env.UVIBE_PROJECT ?? process.cwd();
+  const projectPath = opts.projectPath ?? process.env.GVIBE_PROJECT ?? process.cwd();
   const bridge =
     opts.bridgeOverride ??
-    (opts.mock || process.env.UVIBE_MOCK === "1"
+    (opts.mock || process.env.GVIBE_MOCK === "1"
       ? createMockBridgeClient()
       : createHttpBridgeClient({ projectPath, ...(opts.bridge ?? {}) }));
   return {
     bridge,
     projectPath,
-    configMockMode: opts.mock === true || process.env.UVIBE_MOCK === "1",
+    configMockMode: opts.mock === true || process.env.GVIBE_MOCK === "1",
     tools: allTools,
   };
 }
@@ -68,7 +68,7 @@ export function buildContext(opts: ServeOptions = {}): ToolContext {
 export function createServer(ctx: ToolContext): McpServer {
   const server = new McpServer(
     {
-      name: "unity-vibe-os",
+      name: "godot-vibe-os",
       version: PRODUCT_VERSION,
     },
     {
@@ -79,8 +79,7 @@ export function createServer(ctx: ToolContext): McpServer {
     }
   );
 
-  // Tool-group controller: registers each tool's handle and disables the ones whose group is not
-  // active at startup (e.g. codegen). unity_manage_tools drives it live via the context.
+  // Register handles so future clients can expose a smaller group subset if desired.
   const controller = ctx.toolGroups ?? new ToolGroupController(defaultActiveGroups());
   ctx.toolGroups = controller;
 
@@ -115,9 +114,9 @@ export function createServer(ctx: ToolContext): McpServer {
     controller.register(tool.name, registered);
   }
 
-  // Claude Code surfaces these as /mcp__unity-vibe-os__<name> slash commands.
+  // MCP clients surface these as /mcp__godot-vibe-os__<name> slash commands.
   registerPrompts(server);
-  // Claude Code lets the user @-mention these unity:// resources.
+  // Clients can @-mention godot:// resources.
   registerResources(server, ctx);
 
   return server;
@@ -148,9 +147,9 @@ function renderKnowledgePrimer(knowledge: KnowledgeBase): string {
     : `partial (${manifest.coverage.scanned}/${manifest.coverage.discovered} files)`;
   return [
     "CURRENT PROJECT MAP (generated, bounded primer)",
-    `Project: ${manifest.project.name}. Coverage: ${coverage}. First-party scripts: ${manifest.coverage.counts.firstPartyScripts}.`,
+    `Project: ${manifest.project.name}. Coverage: ${coverage}. Project scripts: ${manifest.coverage.counts.firstPartyScripts}.`,
     modules.length ? `Modules: ${modules.join(", ")}.` : "Modules: none detected.",
-    "Use unity_query_project_brain for source-backed details; do not infer facts from this compact primer.",
+    "Use godot_query_project_brain for source-backed details; do not infer facts from this compact primer.",
   ].join("\n");
 }
 
@@ -165,12 +164,12 @@ export { allTools } from "./tools/index.js";
 export type { ToolContext, ToolDef } from "./registry.js";
 export { ToolGroupController, defaultActiveGroups, groupOf, isKnownGroup, TOOL_GROUPS } from "./groups.js";
 export { toolAnnotations, type ToolAnnotations } from "./annotations.js";
-export { UNITY_PROMPTS, registerPrompts } from "./prompts.js";
+export { GODOT_PROMPTS, registerPrompts } from "./prompts.js";
 export {
   registerResources,
-  readSceneHierarchyResource,
-  readConsoleResource,
+  readSceneTreeResource,
   readActionLogResource,
+  readConventionsResource,
   readProjectBrainResource,
 } from "./resources.js";
 export { SERVER_INSTRUCTIONS } from "./instructions.js";

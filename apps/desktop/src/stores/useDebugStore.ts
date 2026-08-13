@@ -8,7 +8,7 @@ export interface DebugEntry {
   t: number;
   /** Source channel: "stream" | "done" | "error" | "raw". */
   kind: string;
-  /** Human-readable one-liner (e.g. `unity_verify`), backend-agnostic. */
+  /** Human-readable one-liner (e.g. `godot_verify`), backend-agnostic. */
   label: string;
   /** Extra context for the summary line — args, output, error text. */
   detail?: string;

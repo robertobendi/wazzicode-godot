@@ -27,6 +27,7 @@ export default {
           DEFAULT: withVar("--accent"),
           hover: withVar("--accent-hover"),
         },
+        godot: withVar("--godot"),
         success: withVar("--success"),
         warning: withVar("--warning"),
         danger: withVar("--danger"),

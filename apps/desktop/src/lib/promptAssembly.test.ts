@@ -10,8 +10,8 @@ describe("instructionFor", () => {
   it("phrases each kind distinctly", () => {
     expect(instructionFor("image", "/p/a.png")).toContain("Look at the image");
     expect(instructionFor("image", "/p/a.png")).toContain("Read tool");
-    expect(instructionFor("model", "/p/h.fbx")).toContain("unity_import_asset");
-    expect(instructionFor("audio", "/p/s.wav")).toContain("unity_import_asset");
+    expect(instructionFor("model", "/p/h.fbx")).toContain("godot_refresh_filesystem");
+    expect(instructionFor("audio", "/p/s.wav")).toContain("godot_refresh_filesystem");
     expect(instructionFor("text", "/p/n.md")).toContain("for extra context");
     expect(instructionFor("other", "/p/x.bin")).toContain("/p/x.bin");
   });
@@ -45,7 +45,7 @@ describe("assemblePrompt", () => {
     expect(lines[1]).toBe("");
     expect(lines[2]).toBe("--- Attached resources ---");
     expect(lines[3]).toContain('"/p/ref.png"');
-    expect(lines[4]).toContain("unity_import_asset");
+    expect(lines[4]).toContain("godot_refresh_filesystem");
     expect(lines[4]).toContain('"/p/tree.fbx"');
     expect(lines[5]).toContain('"/p/notes.md"');
   });

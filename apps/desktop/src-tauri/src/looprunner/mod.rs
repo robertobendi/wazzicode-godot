@@ -5,11 +5,11 @@
 //!
 //!   1. **Builder** — a resumed agent session (Claude or Codex, whichever the
 //!      user selected) told to implement the next small increment, run
-//!      `unity_verify`, screenshot, and end with a fenced JSON verdict
+//!      `godot_verify`, viewport capture, and end with a fenced JSON verdict
 //!      (`done` / `continue` / `blocked`).
 //!   2. **QA critic** — a *cold* (unresumed) harsh reviewer that only runs when
 //!      the builder claims `done` (and `qaEvery > 0`); a fail feeds its notes
-//!      back into the next builder turn. The critic must run `unity_qa` and
+//!      back into the next builder turn. The critic must run `godot_verify` and
 //!      report its verdict as a `gate`: the loop finishes only when that gate
 //!      passed *and* the reviewer is satisfied, so no amount of confident prose
 //!      or a good-looking screenshot can end the loop over a red build. A gate
@@ -28,7 +28,7 @@
 //! budget that never trips — the loop disables the cap explicitly and warns.
 //!
 //! Exactly one loop runs per app. State is persisted to
-//! `<project>/.unity-vibe/loop/<loopId>/state.json` and mirrored to the webview
+//! `<project>/.godot-vibe/loop/<loopId>/state.json` and mirrored to the webview
 //! via a single `loop:update` event (payload = the full [`LoopState`]) on every
 //! transition.
 
@@ -198,7 +198,7 @@ impl LoopManager {
         }
 
         let loop_id = nanoid::nanoid!();
-        let dir = project.join(".unity-vibe").join("loop").join(&loop_id);
+        let dir = project.join(".godot-vibe").join("loop").join(&loop_id);
         std::fs::create_dir_all(&dir)?;
         // A human-readable goal file next to the machine state.
         let _ = std::fs::write(dir.join("goal.md"), &goal);
@@ -417,10 +417,10 @@ impl Driver {
 
             // Prefer our own capture; fall back to the (possibly stale) path the
             // builder reported.
-            let screenshot = self
-                .capture_iter(i)
-                .await
-                .or_else(|| reflection.screenshot_path.clone());
+            let screenshot = match reflection.screenshot_path.clone() {
+                Some(path) => Some(path),
+                None => self.capture_iter(i).await,
+            };
             let commit = self.git_checkpoint(i, &reflection.summary).await;
 
             self.push_iteration(
@@ -509,8 +509,7 @@ impl Driver {
                         Step::CostCapped => return self.finish(LoopStatus::CostCapped).await,
                         _ => {
                             // QA failed → carry its notes into the next builder.
-                            qa_feedback =
-                                qa.map(|q| q.feedback()).filter(|n| !n.trim().is_empty());
+                            qa_feedback = qa.map(|q| q.feedback()).filter(|n| !n.trim().is_empty());
                             if reflect::gate_iterations(i + 1, max_iter) == Step::MaxIterations {
                                 return self.finish(LoopStatus::MaxIterations).await;
                             }
@@ -607,15 +606,30 @@ impl Driver {
         self.finish(LoopStatus::Failed).await;
     }
 
-    /// Capture the game view into `iter-<i>.png`. Tolerant: `None` on any error.
+    /// Capture the most relevant editor viewport into `iter-<i>.png`. The
+    /// builder's explicit capture wins; this is a tolerant visual fallback.
     async fn capture_iter(&self, i: u32) -> Option<String> {
-        let params = serde_json::json!({ "width": 960, "height": 540, "format": "png" });
-        let result = crate::bridge::call(&self.shared.project, "screenshot.gameView", params)
+        let scenes = crate::bridge::call(
+            &self.shared.project,
+            "scene.getOpenScenes",
+            serde_json::json!({}),
+        )
+        .await
+        .ok();
+        let (method, kind) = fallback_viewport(scenes.as_ref());
+        let params = serde_json::json!({ "width": 960, "height": 540 });
+        let result = crate::bridge::call(&self.shared.project, method, params)
             .await
             .ok()?;
+        if result.get("mimeType").and_then(|value| value.as_str()) != Some("image/png") {
+            return None;
+        }
         let b64 = result.get("pngBase64").and_then(|v| v.as_str())?;
         let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
-        let file = self.shared.dir.join(format!("iter-{i}.png"));
+        if bytes.is_empty() {
+            return None;
+        }
+        let file = self.shared.dir.join(format!("iter-{i}-{kind}.png"));
         std::fs::write(&file, bytes).ok()?;
         Some(file.to_string_lossy().into_owned())
     }
@@ -752,7 +766,7 @@ async fn persist_and_emit(app: &AppHandle, shared: &LoopShared) {
 }
 
 fn load_latest_state(project: &Path) -> Option<LoopState> {
-    let root = project.join(".unity-vibe").join("loop");
+    let root = project.join(".godot-vibe").join("loop");
     let mut candidates = std::fs::read_dir(root)
         .ok()?
         .filter_map(Result::ok)
@@ -832,7 +846,7 @@ fn git_commit(
 
 /// Shared tail appended to every builder prompt: the verify → screenshot →
 /// fenced-verdict contract the reflector depends on.
-const BUILDER_TAIL: &str = "\n\nAfter you make changes, run unity_verify to confirm the project compiles and the tests pass, then capture the result with unity_capture_game_view.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{\"status\":\"done|continue|blocked\",\"summary\":\"<one sentence>\",\"screenshotPath\":\"<absolute path to your screenshot, or empty>\"}\n```\nUse \"done\" ONLY when the WHOLE goal is achieved and unity_verify passes. Use \"continue\" when there is more to do. Use \"blocked\" only if you genuinely cannot make progress.";
+const BUILDER_TAIL: &str = "\n\nAfter making changes, run godot_verify. It must prove headless import and GDScript syntax; if it reports tests as not_configured, state that honestly and do not imply tests ran. Inspect the relevant scene tree and capture the 2D or 3D editor viewport when visual evidence is useful.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{\"status\":\"done|continue|blocked\",\"summary\":\"<one sentence>\",\"screenshotPath\":\"<returned screenshot path, or empty>\"}\n```\nUse \"done\" ONLY when the WHOLE goal is achieved and godot_verify passes. Use \"continue\" when there is more to do. Use \"blocked\" only if you genuinely cannot make progress.";
 
 fn reference_block(images: &[String]) -> String {
     if images.is_empty() {
@@ -870,7 +884,7 @@ fn builder_prompt(
                 "\n\nThis is the first iteration. Implement the FIRST small, safe increment toward the goal — do not attempt everything at once.".into()
             });
         format!(
-            "You are an autonomous Unity build agent working toward a goal, one small increment at a time.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}{feedback}{continuation}{BUILDER_TAIL}"
+            "You are an autonomous Godot build agent working toward a goal, one small increment at a time. Use Godot-native scenes, nodes, resources, and scripts.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}{feedback}{continuation}{BUILDER_TAIL}"
         )
     } else {
         let qa = match qa_feedback {
@@ -902,7 +916,7 @@ fn feedback_block(feedback: &[String]) -> String {
 fn qa_prompt(goal: &str, images: &[String]) -> String {
     let refs = reference_block(images);
     format!(
-        "You are a harsh, skeptical QA reviewer. Judge whether this goal has been FULLY achieved in the CURRENT state of the Unity project.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nJudge in this order:\n\n1. Run `unity_qa` FIRST. It is the ground truth — compile status, console errors, tests, missing scripts and dangling references come back as structured checks, and your opinion does not override it. Report what it returned in the `gate` field: \"pass\" if every check passed (checks it reports as skipped are not failures), \"fail\" if any check failed, \"unavailable\" if the tool could not run at all.\n2. Then judge the goal itself. Use unity_capture_game_view to see the current game view, and unity_enter_play_mode / unity_simulate_input if runtime behaviour matters.\n\nSet `pass` to true only when the gate passed AND the goal is fully met. A good-looking screenshot over a failing gate is not a pass. Be strict — do not pass work that is incomplete or visibly wrong.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{{\"pass\":true|false,\"gate\":\"pass|fail|unavailable\",\"score\":0,\"notes\":\"<what is wrong, or what is good>\"}}\n```"
+        "You are a harsh, skeptical QA reviewer. Judge whether this goal has been FULLY achieved in the CURRENT Godot project.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nJudge in this order:\n\n1. Run `godot_verify` FIRST. It is the ground truth for headless import and GDScript syntax. Report `gate` as \"pass\" only when it passes, \"fail\" when it fails, or \"unavailable\" when it cannot run. If tests are `not_configured`, say so in notes and never claim tests ran; that status alone does not turn a passing import/script gate into a failure.\n2. Inspect open scenes and the relevant scene tree. Use `godot_capture_2d_view` or `godot_capture_3d_view` for visual goals. Use `godot_run_project` and observe only supported evidence when runtime behaviour matters, then stop the project.\n\nSet `pass` to true only when godot_verify passed AND the goal is fully met. Visual polish cannot override a failing gate. Be strict.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{{\"pass\":true|false,\"gate\":\"pass|fail|unavailable\",\"score\":0,\"notes\":\"<what is wrong, what is good, and tests:not_configured when applicable>\"}}\n```"
     )
 }
 
@@ -925,6 +939,25 @@ fn first_meaningful_line(s: &str) -> String {
         .unwrap_or("The agent stopped unexpectedly.")
         .trim_matches(|character| character == '"' || character == ',')
         .to_string()
+}
+
+fn fallback_viewport(scenes: Option<&serde_json::Value>) -> (&'static str, &'static str) {
+    let active_root = scenes
+        .and_then(|value| value.get("scenes"))
+        .and_then(|value| value.as_array())
+        .and_then(|scenes| {
+            scenes
+                .iter()
+                .find(|scene| scene.get("active").and_then(|value| value.as_bool()) == Some(true))
+        })
+        .and_then(|scene| scene.get("rootType"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    if active_root.ends_with("3D") {
+        ("viewport.capture3D", "3d")
+    } else {
+        ("viewport.capture2D", "2d")
+    }
 }
 
 fn normalize_feedback(text: &str) -> Result<String, String> {
@@ -1022,8 +1055,32 @@ mod tests {
         assert!(p.contains("ship the level"));
         assert!(p.contains("\"pass\""));
         // The critic is required to run the ground-truth gate and report it.
-        assert!(p.contains("unity_qa"));
+        assert!(p.contains("godot_verify"));
+        assert!(p.contains("not_configured"));
         assert!(p.contains("\"gate\""));
+    }
+
+    #[test]
+    fn fallback_capture_uses_the_active_scene_dimension() {
+        let scenes = serde_json::json!({
+            "scenes": [
+                { "active": false, "rootType": "Node2D" },
+                { "active": true, "rootType": "Node3D" }
+            ]
+        });
+        assert_eq!(
+            fallback_viewport(Some(&scenes)),
+            ("viewport.capture3D", "3d")
+        );
+
+        let ui_scene = serde_json::json!({
+            "scenes": [{ "active": true, "rootType": "Control" }]
+        });
+        assert_eq!(
+            fallback_viewport(Some(&ui_scene)),
+            ("viewport.capture2D", "2d")
+        );
+        assert_eq!(fallback_viewport(None), ("viewport.capture2D", "2d"));
     }
 
     #[test]
@@ -1101,8 +1158,8 @@ mod tests {
     #[test]
     fn reloads_an_interrupted_run_as_recoverable_failure() {
         let project =
-            std::env::temp_dir().join(format!("unity-vibe-loop-test-{}", nanoid::nanoid!()));
-        let loop_dir = project.join(".unity-vibe").join("loop").join("saved-loop");
+            std::env::temp_dir().join(format!("godot-vibe-loop-test-{}", nanoid::nanoid!()));
+        let loop_dir = project.join(".godot-vibe").join("loop").join("saved-loop");
         std::fs::create_dir_all(&loop_dir).unwrap();
 
         let mut state = test_state();

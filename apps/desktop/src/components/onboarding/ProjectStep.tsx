@@ -4,9 +4,9 @@ import type { ProjectInfo } from "@/types/project";
 import { PrimaryButton, SecondaryButton, StepHeading } from "./_shared";
 
 /**
- * Step 2 — pick and validate the Unity project folder (same logic as
- * ProjectPicker: must have Assets/ + ProjectSettings/). On confirm, hands the
- * validated info up to the wizard.
+ * Step 2 — pick and validate the Godot project folder (same logic as
+ * ProjectPicker: the folder must contain `project.godot`). Passes the
+ * validated project up to the wizard.
  */
 export default function ProjectStep({
   initial,
@@ -27,14 +27,10 @@ export default function ProjectStep({
     setError(null);
     setChecking(true);
     try {
-      const info = await api.validateUnityProject(path);
+      const info = await api.validateGodotProject(path);
       if (!info.ok) {
         setCandidate(null);
-        setError(
-          `That folder doesn't look like a Unity project (missing ${
-            info.hasAssets ? "" : "Assets/ "
-          }${info.hasProjectSettings ? "" : "ProjectSettings/"}).`.trim(),
-        );
+        setError("That folder doesn't look like a Godot project (missing project.godot).");
       } else {
         setCandidate(info);
       }
@@ -53,9 +49,8 @@ export default function ProjectStep({
   return (
     <div>
       <StepHeading title="Choose your game">
-        Open the folder that holds your Unity game — the one with{" "}
-        <code className="text-fg-dim">Assets</code> and{" "}
-        <code className="text-fg-dim">ProjectSettings</code>.
+        Open the folder that contains your game&apos;s{" "}
+        <code className="text-fg-dim">project.godot</code> file.
       </StepHeading>
 
       <div className="mt-6">
@@ -71,7 +66,7 @@ export default function ProjectStep({
           <div className="text-sm font-medium text-fg">{candidate.name}</div>
           <div className="mt-0.5 truncate text-xs text-fg-dim">{candidate.path}</div>
           <div className="mt-2 text-[11px] text-fg-muted">
-            Unity {candidate.unityVersion ?? "version unknown"}
+            Godot {candidate.godotVersion ?? "version unknown"}
           </div>
         </div>
       )}

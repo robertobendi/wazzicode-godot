@@ -1,6 +1,6 @@
 import { z, ZodRawShape } from "zod";
-import { ToolEnvelope, WriteTarget } from "@uvibe/core";
-import { BridgeClient } from "@uvibe/bridge-client";
+import { ToolEnvelope, WriteTarget } from "@gvibe/core";
+import { BridgeClient } from "@gvibe/bridge-client";
 import type { ToolGroupController } from "./groups.js";
 
 export type { WriteTarget };
@@ -9,7 +9,7 @@ export interface ToolContext {
   bridge: BridgeClient;
   projectPath: string;
   configMockMode: boolean;
-  /** The full tool registry, so composite tools (e.g. unity_batch) can resolve tools by name. */
+  /** The full tool registry, so godot_batch can resolve tools by name. */
   tools?: AnyToolDef[];
   /** Live tool-group toggle controller; set by createServer (absent in direct/test contexts). */
   toolGroups?: ToolGroupController;
@@ -21,8 +21,8 @@ export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unk
   name: string;
   description: string;
   inputShape: TShape;
-  /** Stable hint of what this tool needs. Used by docs and `uvibe doctor`. */
-  requires: Array<"unity_bridge" | "filesystem" | "git" | "project_brain">;
+  /** Stable hint of what this tool needs. Used by docs and `gvibe doctor`. */
+  requires: Array<"godot_bridge" | "filesystem" | "git" | "project_brain">;
   /** Mutates project state. The server gates these behind safetyMode and logs them. */
   write?: boolean;
   /** What kind of state a write tool touches; drives per-target safety flags. */
@@ -33,8 +33,8 @@ export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unk
   ) => Promise<ToolEnvelope<TOutput>>;
 }
 
-/** What a tool declares it needs to run. Used by docs and `uvibe doctor`. */
-export type ToolRequirement = "unity_bridge" | "filesystem" | "git" | "project_brain";
+/** What a tool declares it needs to run. Used by docs and `gvibe doctor`. */
+export type ToolRequirement = "godot_bridge" | "filesystem" | "git" | "project_brain";
 
 /**
  * Registry-side view of a tool with its generics erased. `ToolDef<Shape, Out>` is NOT

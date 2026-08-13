@@ -37,9 +37,9 @@ pub struct FlagInput<'a> {
 }
 
 /// Tools we hand Claude. `--allowedTools` is variadic (`<tools...>`), so each
-/// entry is pushed as its own argv element after the flag. `mcp__unity-vibe-os`
+/// entry is pushed as its own argv element after the flag. `mcp__godot-vibe-os`
 /// (no `__tool` suffix) whitelists every tool exposed by that MCP server, so
-/// Claude can drive Unity without us enumerating all 60-odd `unity_*` tools.
+/// Claude can drive Godot without enumerating each `godot_*` tool.
 /// Studio runs these tools non-interactively; checkpoints and project-level
 /// guards provide recovery without leaving a hidden approval prompt behind.
 const ALLOWED_TOOLS: &[&str] = &[
@@ -53,11 +53,11 @@ const ALLOWED_TOOLS: &[&str] = &[
     "TodoWrite",
     "WebFetch",
     "WebSearch",
-    "mcp__unity-vibe-os",
+    "mcp__godot-vibe-os",
 ];
 
 /// Tools for an answer-only run. Every one of these reads; none of them writes,
-/// runs a shell, or reaches the Unity bridge. Whitelisting is the enforcement —
+/// runs a shell, or reaches the Godot bridge. Whitelisting is the enforcement —
 /// a tool absent from `--allowedTools` cannot be called at all, so the question
 /// box physically cannot edit the project even if the model decides to try.
 const READ_ONLY_TOOLS: &[&str] = &["Read", "Glob", "Grep"];
@@ -102,7 +102,7 @@ fn build_claude_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     // ignores any project `.mcp.json`, so machine-specific paths never leak
     // into the game repo and no interactive server-approval is needed. An
     // answer-only run gets no MCP server at all: nothing in its tool list could
-    // call one, and leaving it out means the Unity bridge is never touched.
+    // call one, and leaving it out means the Godot bridge is never touched.
     if !input.read_only {
         args.push("--mcp-config".into());
         args.push(input.mcp_config_path.to_string_lossy().into_owned());
@@ -162,7 +162,7 @@ mod tests {
     fn entry() -> McpEntry {
         McpEntry {
             command: "node".into(),
-            args: vec!["/opt/uvibe.cjs".into(), "serve".into()],
+            args: vec!["/opt/gvibe.cjs".into(), "serve".into()],
             project: "/Users/x/Game".into(),
         }
     }
@@ -194,7 +194,7 @@ mod tests {
         assert!(args.contains(&"--include-partial-messages".to_string()));
         assert!(args.contains(&"--strict-mcp-config".to_string()));
         // Variadic tools each present as their own arg.
-        assert!(args.contains(&"mcp__unity-vibe-os".to_string()));
+        assert!(args.contains(&"mcp__godot-vibe-os".to_string()));
         assert!(args.contains(&"Read".to_string()));
         // App-managed runs never stop for an invisible permission prompt.
         let i = args.iter().position(|a| a == "--permission-mode").unwrap();
@@ -225,13 +225,13 @@ mod tests {
         );
         assert!(args.contains(&"Read".to_string()));
         assert!(args.contains(&"Grep".to_string()));
-        for forbidden in ["Edit", "Write", "MultiEdit", "Bash", "mcp__unity-vibe-os"] {
+        for forbidden in ["Edit", "Write", "MultiEdit", "Bash", "mcp__godot-vibe-os"] {
             assert!(
                 !args.contains(&forbidden.to_string()),
                 "{forbidden} must not be reachable from an answer-only run"
             );
         }
-        // No MCP server either, so the Unity bridge is never touched.
+        // No MCP server either, so the Godot bridge is never touched.
         assert!(!args.contains(&"--mcp-config".to_string()));
         assert!(!args.contains(&"--strict-mcp-config".to_string()));
     }

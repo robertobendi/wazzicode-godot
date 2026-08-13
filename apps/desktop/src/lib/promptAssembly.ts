@@ -16,7 +16,7 @@ export function instructionFor(kind: ResourceKind, path: string): string {
       return `Look at the image at "${path}" (use your Read tool to view it).`;
     case "model":
     case "audio":
-      return `Import the asset at "${path}" into the project with unity_import_asset, then use it appropriately for this request.`;
+      return `Move or copy the asset at "${path}" into an appropriate res:// folder, run godot_refresh_filesystem, then use it for this request.`;
     case "text":
       return `Read "${path}" for extra context.`;
     default:

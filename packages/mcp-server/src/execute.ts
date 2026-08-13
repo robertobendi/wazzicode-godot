@@ -1,21 +1,49 @@
-import { ToolEnvelope, err } from "@uvibe/core";
-import { markBrainDirty } from "@uvibe/project-brain";
-import { appendAction, createSnapshot, gateTool, loadConfig } from "@uvibe/safety";
+import { BRIDGE_METHODS, OpenScenesResult, ToolEnvelope, err } from "@gvibe/core";
+import { markBrainDirty } from "@gvibe/project-brain";
+import {
+  ProjectWriteLockError,
+  ProjectWriteLockOptions,
+  appendAction,
+  createSnapshot,
+  gateTool,
+  loadConfig,
+  withProjectWriteLock,
+} from "@gvibe/safety";
 import { AnyToolDef, ToolContext } from "./registry.js";
 
 /**
  * Execute a tool with the full safety contract applied. Write tools are gated by safetyMode /
  * per-target flags, optionally snapshotted, and recorded to the action log. Non-write tools (and
- * everything in mock mode) run directly. This is the single execution path shared by the MCP
- * request handler and unity_batch, so gating/logging can never be bypassed by composing tools.
+ * mock-backed writes) use the same contract. This is also used by godot_batch.
  */
 export async function executeTool(
   tool: AnyToolDef,
   args: Record<string, unknown>,
-  ctx: ToolContext
+  ctx: ToolContext,
+  options: { writeLock?: ProjectWriteLockOptions } = {},
 ): Promise<ToolEnvelope<unknown>> {
-  if (tool.write && !ctx.configMockMode) {
-    return runGatedWrite(tool, args, ctx);
+  if (tool.write) {
+    let env: ToolEnvelope<unknown>;
+    try {
+      env = await withProjectWriteLock(
+        ctx.projectPath,
+        () => runGatedWrite(tool, args, ctx),
+        { operation: tool.name, ...options.writeLock },
+      );
+    } catch (error) {
+      if (!(error instanceof ProjectWriteLockError)) throw error;
+      const details = error.holder ? { holder: error.holder } : undefined;
+      return err(
+        error.kind === "timeout" ? "PROJECT_BUSY" : "FILE_WRITE_FAILED",
+        error.message,
+        { source: ctx.bridge.source },
+        details,
+      );
+    }
+    if (env.ok && shouldInvalidateKnowledge(tool, args, env.data)) {
+      await safeMarkKnowledgeDirty(ctx.projectPath, describeKnowledgeChange(tool, args));
+    }
+    return env;
   }
   return tool.run(args as never, ctx);
 }
@@ -41,14 +69,29 @@ async function runGatedWrite(
     return blocked;
   }
 
-  // Best-effort snapshot of the scene file before a save, when autoSnapshot is on.
+  // Disk-backed writes receive a recoverable file snapshot in addition to editor UndoRedo.
   let snapshotId: string | undefined;
-  if (config.autoSnapshot && tool.name === "unity_save_scene" && typeof parsed.scenePath === "string") {
+  if (config.autoSnapshot && parsed.preview !== true) {
     try {
-      const snap = await createSnapshot(ctx.projectPath, [parsed.scenePath]);
-      snapshotId = snap.id;
-    } catch {
-      // Snapshot is best-effort; Unity's Undo system remains the primary safety net.
+      const snapshotPath = await snapshotPathFor(tool, parsed, ctx);
+      if (snapshotPath) {
+        const snap = await createSnapshot(ctx.projectPath, [snapshotPath]);
+        snapshotId = snap.id;
+      }
+    } catch (error) {
+      const blocked = err(
+        "WRITE_REQUIRES_SNAPSHOT",
+        `Required snapshot failed, so '${tool.name}' did not run: ${error instanceof Error ? error.message : String(error)}`,
+        { source: ctx.bridge.source }
+      );
+      await safeAppend(ctx.projectPath, {
+        timestamp: Date.now(),
+        tool: tool.name,
+        args: parsed,
+        result: "blocked",
+        errorCode: blocked.error.code,
+      });
+      return blocked;
     }
   }
 
@@ -65,10 +108,31 @@ async function runGatedWrite(
         ? (env.data as { summary: string }).summary
         : undefined,
   });
-  if (env.ok && shouldInvalidateKnowledge(tool, parsed, env.data)) {
-    await safeMarkKnowledgeDirty(ctx.projectPath, describeKnowledgeChange(tool, parsed));
-  }
   return env;
+}
+
+async function snapshotPathFor(
+  tool: AnyToolDef,
+  args: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<string | undefined> {
+  if (tool.name === "godot_save_scene") {
+    if (typeof args.path === "string" && args.path.length > 0) return args.path;
+    const response = await ctx.bridge.call<OpenScenesResult>(BRIDGE_METHODS.sceneGetOpenScenes);
+    if (!response.ok) {
+      throw new Error(`Could not resolve the active scene (${response.error.code}): ${response.error.message}`);
+    }
+    const active = response.result.scenes.find((scene) => scene.active);
+    const activePath = active?.path || response.result.activeScene;
+    if (!active || !activePath.startsWith("res://") || activePath.length <= "res://".length) {
+      throw new Error("The editor has no active scene with a saved res:// path.");
+    }
+    return activePath;
+  }
+  if (tool.writeTarget === "script") {
+    return typeof args.path === "string" ? args.path : undefined;
+  }
+  return undefined;
 }
 
 function shouldInvalidateKnowledge(
@@ -76,6 +140,7 @@ function shouldInvalidateKnowledge(
   args: Record<string, unknown>,
   data: unknown
 ): boolean {
+  if (tool.name === "godot_open_scene") return false;
   if (args.preview === true) {
     const applied =
       typeof data === "object" &&
@@ -85,14 +150,12 @@ function shouldInvalidateKnowledge(
   }
   switch (tool.writeTarget) {
     case "script":
-    case "asset":
-    case "prefab":
+    case "resource":
+    case "project_settings":
     case "editor":
-    case "code":
       return true;
     case "scene":
-      return tool.name === "unity_save_scene";
-    case "console":
+      return tool.name === "godot_save_scene";
     default:
       return false;
   }
@@ -102,7 +165,7 @@ function describeKnowledgeChange(
   tool: AnyToolDef,
   args: Record<string, unknown>
 ): string {
-  const pathValue = [args.path, args.assetPath, args.scenePath, args.prefabPath]
+  const pathValue = [args.path, args.resourcePath, args.scenePath]
     .find((value): value is string => typeof value === "string" && value.length > 0);
   return pathValue ? `${tool.name}: ${pathValue}` : tool.name;
 }
@@ -119,6 +182,6 @@ async function safeMarkKnowledgeDirty(projectPath: string, change: string): Prom
   try {
     await markBrainDirty(projectPath, change);
   } catch {
-    // A maintenance failure must not turn a successful Unity edit into a failure.
+    // A maintenance failure must not turn a successful Godot edit into a failure.
   }
 }

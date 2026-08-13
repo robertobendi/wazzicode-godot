@@ -1,11 +1,11 @@
-# Unsigned cross-platform release build for foundry-unity (apps/desktop).
+# Unsigned cross-platform release build for Foundry for Godot.
 #
 # Triggers on a `desktop-v*` tag push (e.g. `git tag desktop-v0.1.0 && git push
 # --tags`) or manual dispatch. Produces, per OS:
 #   - macOS  arm64 + intel   → .dmg  (both on the arm64 runner; intel is cross-compiled)
 #   - Windows x86_64         → .msi + NSIS .exe
 #   - Linux   x86_64         → .deb + .AppImage
-# and attaches them to a DRAFT GitHub release named "foundry-unity <tag>",
+# and attaches them to a draft release named "foundry-godot <tag>",
 # which an admin publishes manually.
 #
 # These builds are UNSIGNED / UN-notarized: no Apple, minisign, or updater
@@ -13,11 +13,11 @@
 # Windows SmartScreen) live in apps/desktop/README.md.
 #
 # The build cannot use the base tauri.conf.json alone: the Node sidecar
-# (externalBin) and the bundled uvibe.cjs + Unity package (resources) live only
+# (externalBin) and the bundled gvibe.cjs + Godot addon (resources) live only
 # in the tauri.bundle.conf.json overlay, and those artifacts don't exist until
 # the pre-build steps below run. So every matrix leg does, in order:
 #   pnpm install → pnpm build (workspace; produces apps/cli/dist for bundling)
-#   → fetch-node-sidecar.mjs --target <triple> → bundle-uvibe.mjs
+#   → fetch-node-sidecar.mjs --target <triple> → bundle-gvibe.mjs
 #   → tauri build --config src-tauri/tauri.bundle.conf.json --target <triple>
 name: desktop-release
 
@@ -97,8 +97,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Builds every workspace package incl. apps/cli/dist — bundle-uvibe.mjs
-      # esbuild-bundles that dist into resources/uvibe.cjs, so it must run first.
+      # Build every workspace package before bundling the CLI.
       - name: Build workspace
         run: pnpm build
 
@@ -108,10 +107,10 @@ jobs:
         working-directory: apps/desktop
         run: node scripts/fetch-node-sidecar.mjs --target ${{ matrix.target }}
 
-      # Emit resources/uvibe.cjs (bundled CLI) + resources/UnityVibeOS (UPM pkg).
-      - name: Bundle uvibe MCP server
+      # Emit the bundled gvibe CLI and Godot addon resources.
+      - name: Bundle gvibe MCP server
         working-directory: apps/desktop
-        run: node scripts/bundle-uvibe.mjs
+        run: node scripts/bundle-gvibe.mjs
 
       # Vendor the offline dictation model + ONNX runtime into public/ so the mic
       # works with no network and no API credits. Host-agnostic (pure WASM), so
@@ -134,16 +133,16 @@ jobs:
           projectPath: apps/desktop
           args: --config src-tauri/tauri.bundle.conf.json --target ${{ matrix.target }}
           tagName: ${{ github.ref_name }}
-          releaseName: "foundry-unity ${{ github.ref_name }}"
+          releaseName: "foundry-godot ${{ github.ref_name }}"
           releaseDraft: true
           prerelease: false
           releaseBody: |
-            foundry-unity — make Unity changes with AI, no terminal.
+            Foundry for Godot — make Godot changes with AI, no terminal.
 
             These builds are **unsigned**. First launch:
 
             - **macOS**: right-click the app → **Open** (or run
-              `xattr -d com.apple.quarantine "/Applications/foundry-unity.app"`)
+              `xattr -d com.apple.quarantine "/Applications/Foundry for Godot.app"`)
               to get past Gatekeeper.
             - **Windows**: on the SmartScreen prompt click **More info → Run anyway**.
               The installer fetches the WebView2 runtime automatically if missing.

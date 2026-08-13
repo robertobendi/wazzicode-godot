@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import {
@@ -6,22 +6,23 @@ import {
   BridgeHealth,
   BridgeMethod,
   BridgeResponse,
+  BridgeResultSchemas,
   BRIDGE_DISCOVERY_REL,
   DEFAULT_BRIDGE_HOST,
   DEFAULT_BRIDGE_PORT,
+  PROTOCOL_VERSION,
+  SystemHealthResultSchema,
   makeBridgeRequest,
-} from "@uvibe/core";
+} from "@gvibe/core";
 
-export type BridgeSource = "unity_bridge" | "mock";
+export type BridgeSource = "godot_bridge" | "mock";
 
 export interface BridgeClient {
   readonly source: BridgeSource;
   call<T = unknown>(method: BridgeMethod, params?: Record<string, unknown>): Promise<BridgeResponse<T>>;
   isConnected(): Promise<boolean>;
   /**
-   * GET /health — answered by the bridge off Unity's main thread, so it works even while the
-   * editor loop is frozen. Returns null when the bridge is unreachable. Optional so simple
-   * test doubles don't have to implement it.
+   * GET /health. Returns null when the addon is unreachable.
    */
   health?(): Promise<BridgeHealth | null>;
 }
@@ -30,62 +31,56 @@ export interface HttpBridgeOptions {
   host?: string;
   /** Explicit port. When set, discovery is skipped (used by tests and manual overrides). */
   port?: number;
+  /** Per-launch addon token. Required with an explicit real bridge port. */
+  token?: string;
   /**
    * Force a single timeout for every call, overriding the per-method budget. Mainly for tests
    * (e.g. timeoutMs:500 against an unbound port). In normal operation leave this unset so each
-   * method gets a budget that matches what the Unity side actually allows it (see timeoutForMethod).
+   * method gets a budget that matches the editor operation (see timeoutForMethod).
    */
   timeoutMs?: number;
   /**
-   * Project root. When set (and no explicit port given), the client reads
-   * Library/UnityVibeOS/bridge.json to learn the actual bound port and to verify it is
-   * talking to the right Unity Editor instance.
+   * Project root. When set, discovery selects the editor instance serving that project.
    */
   projectPath?: string;
 }
 
+export type PublicBridgeDiscovery = Omit<BridgeDiscovery, "token">;
+
+export function redactBridgeDiscovery(discovery: BridgeDiscovery | null): PublicBridgeDiscovery | null {
+  if (!discovery) return null;
+  return {
+    port: discovery.port,
+    host: discovery.host,
+    projectPath: discovery.projectPath,
+    godotVersion: discovery.godotVersion,
+    pid: discovery.pid,
+    protocolVersion: discovery.protocolVersion,
+    startedAt: discovery.startedAt,
+  };
+}
+
 /**
- * Per-method client-side timeout, in milliseconds. The Unity bridge gives each method its own
- * main-thread budget (BridgeServer.TimeoutFor) — up to 120s for asset-graph scans and 60s for
- * play-mode transitions — and returns its own BRIDGE_TIMEOUT at that budget. A flat 5s client
- * timeout would abort those calls long before Unity finished, so we mirror the server budgets
- * here with a few seconds of network slack on top. Anything not listed gets a safe default.
+ * Godot editor operations run on the editor thread. File scans and play transitions receive
+ * wider budgets than small inspection calls.
  */
 const METHOD_TIMEOUT_MS: Record<string, number> = {
-  // Asset / reference-graph scans walk the whole AssetDatabase.
-  "asset.findReferences": 125_000,
-  "asset.findDependencies": 125_000,
-  "asset.findMissingScripts": 125_000,
-  "asset.findMissingReferences": 125_000,
-  "asset.refresh": 125_000,
-  // Play-mode transitions trigger a domain reload / scene (un)load.
-  "playmode.enter": 65_000,
-  "playmode.exit": 65_000,
-  // Long-poll awaits hold the HTTP request open server-side for up to 25s per round.
-  "compile.await": 30_000,
-  "playmode.await": 30_000,
-  "test.await": 30_000,
-  // Multi-frame stepping long-polls in the same way.
-  "playmode.step": 30_000,
-  // Test runner kicks off an async job; the polling tool calls these repeatedly.
-  "test.run": 35_000,
-  "test.status": 35_000,
-  // Script edits and in-Editor code execution can trigger an import / compile.
-  "script.create": 40_000,
-  "script.applyEdits": 40_000,
-  "script.applyStructuredEdits": 40_000,
-  "code.execute": 60_000,
+  "filesystem.scan": 125_000,
+  "resource.getDependencies": 60_000,
+  "play.run": 45_000,
+  "play.stop": 45_000,
+  "viewport.capture2D": 30_000,
+  "viewport.capture3D": 30_000,
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+const MIN_DISCOVERY_TOKEN_LENGTH = 32;
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 
 const RELOAD_SAFE_EMPTY_RESPONSE_METHODS = new Set<string>([
-  "playmode.enter",
-  "playmode.exit",
-  "playmode.await",
-  "compile.await",
-  "test.await",
-  "asset.refresh",
+  "play.run",
+  "play.stop",
+  "filesystem.scan",
 ]);
 
 export function timeoutForMethod(method: string): number {
@@ -93,27 +88,37 @@ export function timeoutForMethod(method: string): number {
 }
 
 /**
- * Read the bridge discovery file Unity writes at Library/UnityVibeOS/bridge.json.
- * Returns null when the file is missing or unparseable (Unity bridge never started here,
- * or the path is not a project root).
+ * Read the discovery file written by the enabled Godot editor addon.
  */
 export function readBridgeDiscovery(projectPath: string): BridgeDiscovery | null {
   try {
-    const raw = readFileSync(path.join(projectPath, BRIDGE_DISCOVERY_REL), "utf8");
-    const d = JSON.parse(raw) as Partial<BridgeDiscovery>;
-    if (typeof d.port === "number" && d.port > 0) {
-      return {
-        port: d.port,
-        host: d.host ?? DEFAULT_BRIDGE_HOST,
-        projectPath: d.projectPath ?? projectPath,
-        unityVersion: d.unityVersion ?? "",
-        pid: d.pid ?? 0,
-        protocolVersion: d.protocolVersion ?? "",
-        startedAt: d.startedAt ?? 0,
-      };
-    }
+    const projectRoot = canonicalPath(projectPath);
+    const discoveryPath = realpathSync.native(path.join(projectRoot, BRIDGE_DISCOVERY_REL));
+    if (!isWithinPath(projectRoot, discoveryPath)) return null;
+    const raw = readFileSync(discoveryPath, "utf8");
+    const d = JSON.parse(raw) as unknown;
+    if (!isRecord(d)) return null;
+    if (!isValidPort(d.port)) return null;
+    if (typeof d.host !== "string" || !LOOPBACK_HOSTS.has(d.host)) return null;
+    if (typeof d.projectPath !== "string" || d.projectPath.length === 0) return null;
+    if (!samePath(d.projectPath, projectPath)) return null;
+    if (typeof d.godotVersion !== "string" || d.godotVersion.length === 0) return null;
+    if (!Number.isInteger(d.pid) || (d.pid as number) <= 0) return null;
+    if (!Number.isInteger(d.startedAt) || (d.startedAt as number) <= 0) return null;
+    if (d.protocolVersion !== PROTOCOL_VERSION) return null;
+    if (!isStrongDiscoveryToken(d.token)) return null;
+    return {
+      port: d.port,
+      host: d.host,
+      projectPath: canonicalPath(d.projectPath),
+      godotVersion: d.godotVersion,
+      pid: d.pid as number,
+      protocolVersion: d.protocolVersion,
+      startedAt: d.startedAt as number,
+      token: d.token,
+    };
   } catch {
-    // No discovery file — Unity bridge has never started here, or this isn't a project root.
+    // No discovery file — the addon has not started here, or this is not a project root.
   }
   return null;
 }
@@ -121,6 +126,16 @@ export function readBridgeDiscovery(projectPath: string): BridgeDiscovery | null
 export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClient {
   const explicitPort = opts.port;
   const projectPath = opts.projectPath;
+  const expectedProject = projectPath ? canonicalPath(projectPath) : undefined;
+  if (explicitPort !== undefined && !isValidPort(explicitPort)) {
+    throw new Error("Explicit Godot bridge port must be an integer from 1 to 65535.");
+  }
+  if (opts.host !== undefined && !LOOPBACK_HOSTS.has(opts.host)) {
+    throw new Error("Godot bridge host must be a loopback address.");
+  }
+  if (explicitPort !== undefined && opts.token !== undefined && !isStrongDiscoveryToken(opts.token)) {
+    throw new Error(`Explicit Godot bridge token must be ${MIN_DISCOVERY_TOKEN_LENGTH}-512 safe characters.`);
+  }
   // An explicit timeoutMs forces one budget for every call (tests). Otherwise each method gets
   // its own budget via timeoutForMethod, resolved per call below.
   const forcedTimeoutMs = opts.timeoutMs;
@@ -146,23 +161,36 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
     host: string;
     port: number;
     expectProject?: string;
-    unityPid?: number;
+    godotPid?: number;
+    token?: string;
     bridgeKnown: boolean;
   } {
     const disco = discovery();
     if (explicitPort !== undefined) {
-      return { host: opts.host ?? DEFAULT_BRIDGE_HOST, port: explicitPort, bridgeKnown: false };
+      return {
+        host: opts.host ?? DEFAULT_BRIDGE_HOST,
+        port: explicitPort,
+        expectProject: expectedProject,
+        token: opts.token,
+        bridgeKnown: false,
+      };
     }
     if (disco) {
       return {
         host: disco.host,
         port: disco.port,
-        expectProject: disco.projectPath,
-        unityPid: disco.pid > 0 ? disco.pid : undefined,
+        expectProject: expectedProject,
+        godotPid: disco.pid > 0 ? disco.pid : undefined,
+        token: disco.token,
         bridgeKnown: true,
       };
     }
-    return { host: opts.host ?? DEFAULT_BRIDGE_HOST, port: opts.port ?? DEFAULT_BRIDGE_PORT, bridgeKnown: false };
+    return {
+      host: opts.host ?? DEFAULT_BRIDGE_HOST,
+      port: opts.port ?? DEFAULT_BRIDGE_PORT,
+      expectProject: expectedProject,
+      bridgeKnown: false,
+    };
   }
 
   function call<T>(
@@ -184,8 +212,8 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
       };
       const finishTransportFailure = (message: string) => {
         const classify = () => {
-          const editorExited = t.unityPid !== undefined && processHasExited(t.unityPid);
-          const code = t.bridgeKnown && !editorExited ? "UNITY_RELOADING" : "UNITY_NOT_CONNECTED";
+          const editorExited = t.godotPid !== undefined && processHasExited(t.godotPid);
+          const code = t.bridgeKnown && !editorExited ? "GODOT_RELOADING" : "GODOT_NOT_CONNECTED";
           finish({
             id: body.id,
             ok: false,
@@ -193,16 +221,16 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
             error: {
               code,
               message: editorExited
-                ? `Unity Editor process ${t.unityPid} exited while handling '${method}'.`
+                ? `Godot Editor process ${t.godotPid} exited while handling '${method}'.`
                 : message,
               ...(editorExited
-                ? { details: { editorExited: true, unityPid: t.unityPid, method } }
+                ? { details: { editorExited: true, godotPid: t.godotPid, method } }
                 : {}),
             },
             meta: {},
           });
         };
-        if (t.unityPid !== undefined) setTimeout(classify, 100);
+        if (t.godotPid !== undefined) setTimeout(classify, 100);
         else classify();
       };
 
@@ -218,6 +246,7 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
             "content-type": "application/json",
             "content-length": Buffer.byteLength(payload),
             connection: "keep-alive",
+            ...(t.token ? { "X-Godot-Vibe-Token": t.token } : {}),
           },
         },
         (res) => {
@@ -240,7 +269,7 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
                 RELOAD_SAFE_EMPTY_RESPONSE_METHODS.has(method)
               ) {
                 finishTransportFailure(
-                  `Bridge response ended while Unity reloaded during '${method}'.`
+                  `Bridge response ended while the Godot addon reloaded during '${method}'.`
                 );
                 return;
               }
@@ -259,7 +288,7 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
             }
             if (status < 200 || status >= 300) {
               if (isBridgeErrorResponse(parsed)) {
-                finish(parsed);
+                finish(validateBridgeResponse<T>(body.id, method, parsed, t.expectProject, text));
               } else {
                 finish(httpStatusError(body.id, status, text));
               }
@@ -269,23 +298,7 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
               finish(malformedBridgeResponse(body.id, text));
               return;
             }
-            // Identity guard: the Editor that answered must be the project Claude works in.
-            if (parsed.ok && t.expectProject && parsed.meta?.projectPath) {
-              if (!samePath(parsed.meta.projectPath, t.expectProject)) {
-                finish({
-                  id: body.id,
-                  ok: false,
-                  result: null,
-                  error: {
-                    code: "PROJECT_IDENTITY_MISMATCH",
-                    message: `Connected Unity is '${parsed.meta.projectPath}' but expected '${t.expectProject}'.`,
-                  },
-                  meta: parsed.meta,
-                });
-                return;
-              }
-            }
-            finish(parsed);
+            finish(validateBridgeResponse<T>(body.id, method, parsed, t.expectProject, text));
           });
         }
       );
@@ -306,8 +319,7 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
           });
           return;
         }
-        // On a native abort the socket closes just before the OS reaps Unity. Give that transition
-        // a short grace window; a domain reload keeps the same PID alive and remains retryable.
+        // On a native abort the socket can close just before the OS reaps the editor.
         finishTransportFailure(e?.message ?? "Bridge call failed.");
       });
 
@@ -325,13 +337,36 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
     const t = target();
     return new Promise((resolve) => {
       const req = http.request(
-        { host: t.host, port: t.port, path: "/health", method: "GET", agent, timeout: 2_000 },
+        {
+          host: t.host,
+          port: t.port,
+          path: "/health",
+          method: "GET",
+          agent,
+          timeout: 2_000,
+          headers: t.token ? { "X-Godot-Vibe-Token": t.token } : {},
+        },
         (res) => {
           const chunks: Buffer[] = [];
           res.on("data", (c: Buffer) => chunks.push(c));
           res.on("end", () => {
+            if ((res.statusCode ?? 0) < 200 || (res.statusCode ?? 0) >= 300) {
+              resolve(null);
+              return;
+            }
             try {
-              resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as BridgeHealth);
+              const parsed = SystemHealthResultSchema.safeParse(
+                JSON.parse(Buffer.concat(chunks).toString("utf8")),
+              );
+              if (!parsed.success) {
+                resolve(null);
+                return;
+              }
+              if (t.expectProject && !samePath(parsed.data.projectPath, t.expectProject)) {
+                resolve(null);
+                return;
+              }
+              resolve(parsed.data);
             } catch {
               resolve(null);
             }
@@ -344,10 +379,10 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
     });
   }
 
-  return { source: "unity_bridge", call, isConnected, health };
+  return { source: "godot_bridge", call, isConnected, health };
 }
 
-/** True only when the OS confirms that a previously discovered Unity PID no longer exists. */
+/** True only when the OS confirms that a previously discovered Godot PID no longer exists. */
 function processHasExited(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -357,9 +392,44 @@ function processHasExited(pid: number): boolean {
   }
 }
 
+function canonicalPath(value: string): string {
+  const resolved = path.resolve(value);
+  try {
+    return realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 function samePath(a: string, b: string): boolean {
-  const norm = (s: string) => path.resolve(s).replace(/[\\/]+$/, "").toLowerCase();
-  return norm(a) === norm(b);
+  const normalize = (value: string) => {
+    const canonical = canonicalPath(value).replace(/[\\/]+$/, "");
+    return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+  };
+  return normalize(a) === normalize(b);
+}
+
+function isWithinPath(root: string, candidate: string): boolean {
+  const normalize = (value: string) => {
+    const normalized = path.resolve(value).replace(/[\\/]+$/, "");
+    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  const normalizedRoot = normalize(root);
+  const normalizedCandidate = normalize(candidate);
+  return normalizedCandidate.startsWith(`${normalizedRoot}${path.sep}`);
+}
+
+function isValidPort(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65_535;
+}
+
+function isStrongDiscoveryToken(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= MIN_DISCOVERY_TOKEN_LENGTH &&
+    value.length <= 512 &&
+    /^[A-Za-z0-9+/_=-]+$/.test(value)
+  );
 }
 
 function isBridgeResponse<T>(value: unknown): value is BridgeResponse<T> {
@@ -368,9 +438,11 @@ function isBridgeResponse<T>(value: unknown): value is BridgeResponse<T> {
     return (
       Object.prototype.hasOwnProperty.call(value, "result") &&
       value.error === null &&
-      typeof value.meta.unityVersion === "string" &&
+      typeof value.meta.godotVersion === "string" &&
       typeof value.meta.projectPath === "string" &&
-      typeof value.meta.durationMs === "number"
+      typeof value.meta.durationMs === "number" &&
+      Number.isFinite(value.meta.durationMs) &&
+      value.meta.durationMs >= 0
     );
   }
   return isBridgeErrorResponse(value);
@@ -387,23 +459,83 @@ function isBridgeErrorResponse(
     isRecord(value.error) &&
     typeof value.error.code === "string" &&
     typeof value.error.message === "string" &&
+    (!Object.prototype.hasOwnProperty.call(value.error, "details") || isRecord(value.error.details)) &&
     isRecord(value.meta)
   );
+}
+
+function validateBridgeResponse<T>(
+  requestId: string,
+  method: BridgeMethod,
+  response: BridgeResponse<unknown>,
+  expectedProject: string | undefined,
+  text: string,
+): BridgeResponse<T> {
+  if (response.id !== requestId) {
+    return malformedBridgeResponse(
+      requestId,
+      text,
+      "Bridge response id did not match the request id.",
+      { expectedId: requestId, actualId: response.id },
+    );
+  }
+
+  if (expectedProject) {
+    const actualProject = response.meta.projectPath;
+    if (typeof actualProject !== "string" || actualProject.length === 0) {
+      return malformedBridgeResponse(
+        requestId,
+        text,
+        "Bridge response omitted the project identity.",
+        { expectedProject },
+      );
+    }
+    if (!samePath(actualProject, expectedProject)) {
+      return {
+        id: requestId,
+        ok: false,
+        result: null,
+        error: {
+          code: "PROJECT_IDENTITY_MISMATCH",
+          message: `Connected Godot is '${actualProject}' but expected '${expectedProject}'.`,
+          details: { expected: expectedProject, actual: canonicalPath(actualProject) },
+        },
+        meta: response.meta,
+      };
+    }
+  }
+
+  if (!response.ok) return response as BridgeResponse<T>;
+  const parsedResult = BridgeResultSchemas[method].safeParse(response.result);
+  if (!parsedResult.success) {
+    return malformedBridgeResponse(
+      requestId,
+      text,
+      `Bridge result for '${method}' did not match its schema.`,
+      { method, issues: parsedResult.error.issues },
+    );
+  }
+  return { ...response, result: parsedResult.data } as BridgeResponse<T>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function malformedBridgeResponse(id: string, text: string): BridgeResponse<never> {
+function malformedBridgeResponse(
+  id: string,
+  text: string,
+  message = "Bridge returned a schema-invalid JSON payload.",
+  details: Record<string, unknown> = {},
+): BridgeResponse<never> {
   return {
     id,
     ok: false,
     result: null,
     error: {
       code: "MALFORMED_BRIDGE_RESPONSE",
-      message: "Bridge returned a schema-invalid JSON payload.",
-      details: { sample: text.slice(0, 200) },
+      message,
+      details: { sample: text.slice(0, 200), ...details },
     },
     meta: {},
   };
@@ -415,8 +547,8 @@ function httpStatusError(id: string, status: number, text: string): BridgeRespon
     ok: false,
     result: null,
     error: {
-      code: "UNITY_NOT_CONNECTED",
-      message: `Unity bridge HTTP ${status}: ${text.slice(0, 200)}`,
+      code: "GODOT_NOT_CONNECTED",
+      message: `Godot bridge HTTP ${status}: ${text.slice(0, 200)}`,
     },
     meta: {},
   };

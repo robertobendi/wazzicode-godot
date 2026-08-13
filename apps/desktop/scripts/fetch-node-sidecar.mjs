@@ -1,7 +1,7 @@
 // Fetch the official Node.js LTS runtime for a target triple and extract ONLY
 // the `node` binary into src-tauri/binaries/node-<target-triple>[.exe], the
 // naming Tauri's `externalBin` expects. That binary is what launches the bundled
-// uvibe.cjs MCP server on employees' machines (no Node install required).
+// gvibe.cjs MCP server on employees' machines (no Node install required).
 //
 // Usage:
 //   node scripts/fetch-node-sidecar.mjs                     # host triple
@@ -75,7 +75,7 @@ async function main() {
   const ext = isWin ? "zip" : "tar.gz";
   const url = `https://nodejs.org/dist/v${NODE_VERSION}/${base}.${ext}`;
 
-  const tmp = path.join(os.tmpdir(), `uvibe-node-${target}-${Date.now()}`);
+  const tmp = path.join(os.tmpdir(), `gvibe-node-${target}-${Date.now()}`);
   mkdirSync(tmp, { recursive: true });
   const archive = path.join(tmp, `node.${ext}`);
   try {

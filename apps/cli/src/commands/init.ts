@@ -1,151 +1,67 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { writeConfigIfMissing } from "@uvibe/safety";
-import { DEFAULT_CONVENTIONS_MD } from "@uvibe/project-brain";
-import { CommandResult, GlobalOptions } from "../options.js";
+import { resolveProjectPath, writeConfigIfMissing } from "@gvibe/safety";
+import { DEFAULT_CONVENTIONS_MD } from "@gvibe/project-brain";
+import type { CommandResult, GlobalOptions } from "../options.js";
 
-const CLAUDE_MD_BEGIN = "<!-- BEGIN unity-vibe-os -->";
-const CLAUDE_MD_END = "<!-- END unity-vibe-os -->";
-const AGENTS_MD_BEGIN = "<!-- BEGIN unity-vibe-os -->";
-const AGENTS_MD_END = "<!-- END unity-vibe-os -->";
+const BEGIN = "<!-- BEGIN godot-vibe-os -->";
+const END = "<!-- END godot-vibe-os -->";
+const GITIGNORE_ENTRIES = [
+  ".godot/",
+  ".godot-vibe/action_log.jsonl",
+  ".godot-vibe/brain/",
+  ".godot-vibe/brain.lock*/",
+  ".godot-vibe/write.lock*/",
+  ".godot-vibe/inbox/",
+  ".godot-vibe/loop/",
+  ".godot-vibe/snapshots/",
+  ".godot-vibe/studio/",
+];
 
-export async function runInit(g: GlobalOptions): Promise<CommandResult> {
-  const out: string[] = [];
-  const cfg = await writeConfigIfMissing(g.project);
-  out.push(cfg.written ? `wrote ${cfg.path}` : `kept ${cfg.path}`);
-
-  const conv = path.join(g.project, ".unity-vibe", "conventions.md");
-  if (!(await exists(conv))) {
-    await fs.mkdir(path.dirname(conv), { recursive: true });
-    await fs.writeFile(conv, DEFAULT_CONVENTIONS_MD, "utf8");
-    out.push(`wrote ${conv}`);
-  } else {
-    out.push(`kept ${conv}`);
+export async function runInit(options: GlobalOptions): Promise<CommandResult> {
+  let projectFile: string;
+  let conventions: string;
+  let agents: string;
+  let claude: string;
+  let gitignore: string;
+  try {
+    [projectFile, conventions, agents, claude, gitignore] = await Promise.all([
+      resolveProjectPath(options.project, "project.godot").then(({ absolute }) => absolute),
+      resolveProjectPath(options.project, ".godot-vibe/conventions.md").then(({ absolute }) => absolute),
+      resolveProjectPath(options.project, "AGENTS.md").then(({ absolute }) => absolute),
+      resolveProjectPath(options.project, "CLAUDE.md").then(({ absolute }) => absolute),
+      resolveProjectPath(options.project, ".gitignore").then(({ absolute }) => absolute),
+    ]);
+    await resolveProjectPath(options.project, ".godot-vibe/config.json");
+  } catch (error) {
+    return { exitCode: 2, stderr: `Refusing to initialize ${options.project}: ${errorMessage(error)}\n` };
   }
-
-  const claudeMd = path.join(g.project, "CLAUDE.md");
-  const claudeStatus = await upsertAgentInstructions(
-    claudeMd,
-    g.project,
-    CLAUDE_MD_BEGIN,
-    CLAUDE_MD_END,
-    "CLAUDE.md",
-    "Claude Code",
-  );
-  out.push(`${claudeStatus} ${claudeMd}`);
-
-  // Codex discovers repository guidance through AGENTS.md. Keep a native file
-  // for each client instead of relying on Codex to know about Claude's file.
-  // The marker-delimited update is idempotent and preserves existing guidance.
-  const agentsMd = path.join(g.project, "AGENTS.md");
-  const agentsStatus = await upsertAgentInstructions(
-    agentsMd,
-    g.project,
-    AGENTS_MD_BEGIN,
-    AGENTS_MD_END,
-    "AGENTS.md",
-    "Codex and other coding agents",
-  );
-  out.push(`${agentsStatus} ${agentsMd}`);
-
-  if (g.json) {
-    return { exitCode: 0, stdout: JSON.stringify({ project: g.project, actions: out }, null, 2) + "\n" };
+  if (!(await exists(projectFile))) return { exitCode: 2, stderr: `Not a Godot project: ${projectFile} is missing.\n` };
+  const actions: string[] = [];
+  const config = await writeConfigIfMissing(options.project);
+  actions.push(`${config.written ? "wrote" : "kept"} ${config.path}`);
+  if (!(await exists(conventions))) { await fs.mkdir(path.dirname(conventions), { recursive: true }); await fs.writeFile(conventions, DEFAULT_CONVENTIONS_MD, "utf8"); actions.push(`wrote ${conventions}`); }
+  for (const file of [agents, claude]) {
+    actions.push(`${await upsert(file, agentBlock(options.project))} ${file}`);
   }
-  return {
-    exitCode: 0,
-    stdout: ["Unity Vibe OS — init", ...out].join("\n") + "\n",
-  };
+  actions.push(`${await upsertGitignore(gitignore)} ${gitignore}`);
+  return options.json ? { exitCode: 0, stdout: JSON.stringify({ project: options.project, actions }, null, 2) + "\n" } : { exitCode: 0, stdout: ["Godot Vibe OS — init", ...actions].join("\n") + "\n" };
 }
 
-async function upsertAgentInstructions(
-  file: string,
-  projectPath: string,
-  begin: string,
-  end: string,
-  filename: string,
-  audience: string,
-): Promise<"created" | "updated" | "appended"> {
-  const block = renderAgentBlock(projectPath, begin, end);
-  if (!(await exists(file))) {
-    await fs.writeFile(file, defaultAgentMd(projectPath, block, filename, audience), "utf8");
-    return "created";
+function agentBlock(project: string): string { return [BEGIN, "## Godot Vibe OS", "", "Use the `godot_*` MCP tools for live editor state. Do not guess NodePaths or Godot APIs, and do not hand-edit `.tscn`/`.tres` when a dedicated editor tool exists.", "", "- Start with `godot_orient({ task: \"<current request>\" })`.", "- Resolve ‘this’ or ‘selected’ with `godot_inspect_selected`.", "- Verify unfamiliar engine APIs with `godot_reflect` before writing code.", "- Read scripts first and pass their sha256 to `godot_apply_text_edits`.", "- After text changes, run `godot_refresh_filesystem`, then `godot_verify`. Import/syntax checks are not unit tests.", "- Scene writes use editor UndoRedo; file writes are snapshotted and action-logged under `.godot-vibe/`.", "", `Diagnose setup with \`gvibe doctor --project=${project}\`.`, END].join("\n"); }
+async function upsert(file: string, block: string): Promise<"created" | "updated" | "appended"> { let current = ""; try { current = await fs.readFile(file, "utf8"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; await fs.writeFile(file, block + "\n", "utf8"); return "created"; } const start = current.indexOf(BEGIN); const end = current.indexOf(END); if (start >= 0 && end >= start) { await fs.writeFile(file, current.slice(0, start) + block + current.slice(end + END.length), "utf8"); return "updated"; } await fs.writeFile(file, current.replace(/\s*$/, "\n\n") + block + "\n", "utf8"); return "appended"; }
+async function upsertGitignore(file: string): Promise<"created" | "updated" | "kept"> {
+  let current = "";
+  try { current = await fs.readFile(file, "utf8"); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const existing = await fs.readFile(file, "utf8");
-  if (existing.includes(begin) && existing.includes(end)) {
-    const replaced = existing.replace(
-      new RegExp(`${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}`),
-      block
-    );
-    await fs.writeFile(file, replaced, "utf8");
-    return "updated";
-  }
-  // No existing markers: append, preserving user's prior content.
-  const sep = existing.endsWith("\n") ? "\n" : "\n\n";
-  await fs.writeFile(file, existing + sep + block + "\n", "utf8");
-  return "appended";
+  const present = new Set(current.split(/\r?\n/).map((line) => line.trim()));
+  const missing = GITIGNORE_ENTRIES.filter((entry) => !present.has(entry));
+  if (missing.length === 0) return "kept";
+  const prefix = current.length === 0 ? "" : current.endsWith("\n") ? current : `${current}\n`;
+  const heading = current.includes("Godot Vibe OS generated state") ? "" : `${prefix.length ? "\n" : ""}# Godot Vibe OS generated state\n`;
+  await fs.writeFile(file, `${prefix}${heading}${missing.join("\n")}\n`, "utf8");
+  return current.length === 0 ? "created" : "updated";
 }
-
-function renderAgentBlock(projectPath: string, begin: string, end: string): string {
-  return [
-    begin,
-    "## Unity Vibe OS",
-    "",
-    "This project has **Unity Vibe OS** installed. Always prefer the `unity_*` MCP tools over reading raw `.unity` / `.prefab` YAML.",
-    "",
-    "### Tools at your disposal",
-    "",
-    "- `unity_project_summary` — Unity version, render pipeline, input system, packages.",
-    "- `unity_get_open_scenes`, `unity_get_scene_hierarchy` — what's loaded and the GameObject tree.",
-    "- `unity_inspect_selected` — full inspector view (transform, components, serialized fields, prefab info, missing-script warnings) of `Selection.activeGameObject`.",
-    "- `unity_get_console_logs`, `unity_wait_for_compile` — feedback after C# changes.",
-    "- `unity_capture_game_view`, `unity_capture_scene_view`, `unity_capture_selected` — multimodal screenshots; you literally see what the user sees.",
-    "- `unity_check_git_status` — repo state before any change.",
-    "- `unity_generate_project_brain` — explicitly rebuild the maintained project map.",
-    "- `unity_query_project_brain` — query the maintained project map with bounded, source-backed results.",
-    "",
-    "### Workflow rules",
-    "",
-    "1. Start with `unity_orient({ task: \"<the current request>\" })`; use `unity_query_project_brain` for deeper project-specific questions.",
-    "2. After C# changes: call `unity_verify` and do not claim success unless it passes.",
-    "3. When the user references \"this\" / \"the selected\" / \"this object\": call `unity_inspect_selected` first.",
-    "4. When the user asks \"how does this look\" / \"show me\" / \"what do you see\": call `unity_capture_game_view` (or `_scene_view` / `_selected`).",
-    "5. Before any change that touches tracked files: `unity_check_git_status`.",
-    "6. Access is app-managed; use the Unity tools directly without asking the user to change permissions or run setup commands. Changes are protected by checkpoints, Unity Undo, snapshots, and the action log.",
-    "7. Treat `.unity-vibe/knowledge/` as the source-backed project map and `.unity-vibe/conventions.md` as project-specific rules. The MCP server refreshes the map before it is queried and marks it dirty after persistent writes.",
-    "",
-    "### Bridge",
-    "",
-    "Unity bridge runs at `127.0.0.1:38578`. It auto-starts when the Unity Editor is open with the `com.uvibe.os` package installed. If a `unity_*` tool returns `UNITY_NOT_CONNECTED`, ask the user to open Unity.",
-    "",
-    "### Re-verify",
-    "",
-    `If anything seems off, run \`uvibe doctor --project=${projectPath}\` (or via \`node /path/to/wazzicode-unity/apps/cli/bin/uvibe doctor --project=${projectPath}\`).`,
-    "",
-    end,
-  ].join("\n");
-}
-
-function defaultAgentMd(
-  projectPath: string,
-  uvibeBlock: string,
-  filename: string,
-  audience: string,
-): string {
-  const name = path.basename(projectPath);
-  return [
-    `# ${filename} — ${name}`,
-    "",
-    `Project-specific instructions for ${audience}.`,
-    "",
-    uvibeBlock,
-    "",
-  ].join("\n");
-}
-
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-async function exists(p: string): Promise<boolean> {
-  try { await fs.access(p); return true; } catch { return false; }
-}
+async function exists(file: string): Promise<boolean> { return fs.access(file).then(() => true, () => false); }
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }

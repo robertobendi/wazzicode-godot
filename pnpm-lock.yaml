@@ -20,19 +20,19 @@ importers:
 
   apps/cli:
     dependencies:
-      '@uvibe/bridge-client':
+      '@gvibe/bridge-client':
         specifier: workspace:*
         version: link:../../packages/bridge-client
-      '@uvibe/core':
+      '@gvibe/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@uvibe/mcp-server':
+      '@gvibe/mcp-server':
         specifier: workspace:*
         version: link:../../packages/mcp-server
-      '@uvibe/project-brain':
+      '@gvibe/project-brain':
         specifier: workspace:*
         version: link:../../packages/project-brain
-      '@uvibe/safety':
+      '@gvibe/safety':
         specifier: workspace:*
         version: link:../../packages/safety
 
@@ -99,7 +99,7 @@ importers:
 
   packages/bridge-client:
     dependencies:
-      '@uvibe/core':
+      '@gvibe/core':
         specifier: workspace:*
         version: link:../core
 
@@ -111,40 +111,34 @@ importers:
 
   packages/mcp-server:
     dependencies:
+      '@gvibe/bridge-client':
+        specifier: workspace:*
+        version: link:../bridge-client
+      '@gvibe/core':
+        specifier: workspace:*
+        version: link:../core
+      '@gvibe/project-brain':
+        specifier: workspace:*
+        version: link:../project-brain
+      '@gvibe/safety':
+        specifier: workspace:*
+        version: link:../safety
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.4
         version: 1.29.0(zod@3.25.76)
-      '@uvibe/bridge-client':
-        specifier: workspace:*
-        version: link:../bridge-client
-      '@uvibe/core':
-        specifier: workspace:*
-        version: link:../core
-      '@uvibe/project-brain':
-        specifier: workspace:*
-        version: link:../project-brain
-      '@uvibe/safety':
-        specifier: workspace:*
-        version: link:../safety
       zod:
         specifier: ^3.23.8
         version: 3.25.76
 
   packages/project-brain:
     dependencies:
-      '@uvibe/core':
-        specifier: workspace:*
-        version: link:../core
-      '@uvibe/safety':
+      '@gvibe/safety':
         specifier: workspace:*
         version: link:../safety
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
 
   packages/safety:
     dependencies:
-      '@uvibe/core':
+      '@gvibe/core':
         specifier: workspace:*
         version: link:../core
       zod:

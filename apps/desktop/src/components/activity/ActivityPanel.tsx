@@ -3,10 +3,10 @@ import { useChatStore } from "@/stores/useChatStore";
 import { useStatusStore } from "@/stores/useStatusStore";
 import ToolTimeline from "./ToolTimeline";
 import LiveScreenshot from "./LiveScreenshot";
-import UnityChecks from "./UnityChecks";
+import GodotChecks from "./GodotChecks";
 
 /**
- * Right-hand Unity workspace: live captures above checks and agent activity.
+ * Right-hand Godot workspace: live viewport above checks and agent activity.
  * Collapsed via the TopBar toggle (this component isn't rendered when closed).
  */
 export default function ActivityPanel() {
@@ -19,7 +19,7 @@ export default function ActivityPanel() {
       <LiveScreenshot project={project} bridgeState={bridgeState} />
       <div
         role="tablist"
-        aria-label="Unity workspace"
+        aria-label="Godot workspace"
         className="grid shrink-0 grid-cols-2 gap-1 border-b border-ink-700 bg-ink-850 p-1.5"
         onKeyDown={(event) => {
           if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -58,7 +58,7 @@ export default function ActivityPanel() {
         className="min-h-0 flex-1"
       >
         {tab === "checks" ? (
-          <UnityChecks project={project} bridgeState={bridgeState} active />
+          <GodotChecks project={project} bridgeState={bridgeState} active />
         ) : (
           <ToolTimeline />
         )}

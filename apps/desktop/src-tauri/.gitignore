@@ -1,6 +1,6 @@
 target/
 gen/schemas/
-# Build artifacts produced by scripts/bundle-uvibe.mjs + scripts/fetch-node-sidecar.mjs
+# Build artifacts produced by scripts/bundle-gvibe.mjs + scripts/fetch-node-sidecar.mjs
 # (regenerated in CI before packaging; never committed).
 resources/
 binaries/

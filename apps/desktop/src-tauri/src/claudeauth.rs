@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::process::Command;
 use std::time::Duration;
 
-const CREDENTIAL_SERVICE: &str = "com.wazzicode.unityvibestudio";
+const CREDENTIAL_SERVICE: &str = "com.wazzicode.foundrygodot";
 const CREDENTIAL_ACCOUNT: &str = "claude-oauth-token";
 const OAUTH_TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 const OAUTH_TOKEN_FD_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR";

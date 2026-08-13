@@ -197,7 +197,7 @@ mod tests {
     }
 
     fn tmp() -> PathBuf {
-        let d = std::env::temp_dir().join(format!("uvibe-git-{}", nanoid::nanoid!(8)));
+        let d = std::env::temp_dir().join(format!("gvibe-git-{}", nanoid::nanoid!(8)));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -247,14 +247,14 @@ mod tests {
         // The AI edits a tracked file and creates a new untracked one, plus a
         // file under the studio state dir that revert must NOT remove.
         std::fs::write(dir.join("keep.txt"), b"changed by AI").unwrap();
-        std::fs::write(dir.join("ai_new.cs"), b"// generated").unwrap();
-        std::fs::create_dir_all(dir.join(".unity-vibe").join("studio")).unwrap();
-        std::fs::write(dir.join(".unity-vibe").join("studio").join("s.json"), b"{}").unwrap();
+        std::fs::write(dir.join("ai_new.gd"), b"# generated").unwrap();
+        std::fs::create_dir_all(dir.join(".godot-vibe").join("studio")).unwrap();
+        std::fs::write(dir.join(".godot-vibe").join("studio").join("s.json"), b"{}").unwrap();
 
         // Revert: reset --hard to the checkpoint + clean untracked (keep
-        // .unity-vibe/).
+        // .godot-vibe/).
         reset_hard(&dir, &cp.sha).unwrap();
-        clean(&dir, &[".unity-vibe/"]).unwrap();
+        clean(&dir, &[".godot-vibe/"]).unwrap();
 
         // Tracked edit rolled back, AI-created file removed, studio state kept.
         assert_eq!(
@@ -262,11 +262,11 @@ mod tests {
             "original"
         );
         assert!(
-            !dir.join("ai_new.cs").exists(),
+            !dir.join("ai_new.gd").exists(),
             "AI-created untracked file should be cleaned"
         );
         assert!(
-            dir.join(".unity-vibe")
+            dir.join(".godot-vibe")
                 .join("studio")
                 .join("s.json")
                 .exists(),

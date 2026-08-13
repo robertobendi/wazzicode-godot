@@ -3,9 +3,9 @@ import { useStatusStore } from "@/stores/useStatusStore";
 import { PrimaryButton, StepHeading } from "./_shared";
 
 /**
- * Step 5 — the finish line. Polls the Unity bridge live: prompts the employee to
- * open Unity, and flips to a green "All set" the moment it connects.
- * Finish is enabled regardless (Unity can connect later).
+ * Step 5 — the finish line. Polls the Godot bridge live: prompts the employee to
+ * open Godot, and flips to a green "All set" the moment it connects.
+ * Finish is enabled regardless; Godot can connect later.
  */
 export default function ReadyStep({
   project,
@@ -24,8 +24,8 @@ export default function ReadyStep({
     <div>
       <StepHeading title={connected ? "All set" : "Almost there"}>
         {connected
-          ? "Unity is connected. You can start chatting to make changes to your game."
-          : "One last thing — open Unity and load your project so the app can talk to it."}
+          ? "Godot is connected. You can start chatting to make changes to your game."
+          : "One last thing — open this project in Godot so the editor addon can connect."}
       </StepHeading>
 
       <div
@@ -47,7 +47,7 @@ export default function ReadyStep({
           </span>
           <div>
             <div className="text-sm font-medium text-fg">
-              {connected ? "Unity connected" : `Open Unity and load ${projectName}`}
+              {connected ? "Godot connected" : `Open Godot and load ${projectName}`}
             </div>
             <div className="mt-0.5 text-xs text-fg-dim">{status.friendly}</div>
           </div>

@@ -8,7 +8,7 @@ import {
 
 /**
  * The effective quick actions for `project`: the built-in defaults, replaced by
- * a valid `.unity-vibe/quick_actions.json` override if the project has one.
+ * a valid `.godot-vibe/quick_actions.json` override if the project has one.
  * Renders defaults instantly, then swaps in the backend result once it arrives.
  */
 export function useQuickActions(project: string | null): QuickAction[] {

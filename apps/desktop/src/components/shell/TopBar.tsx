@@ -61,8 +61,8 @@ export default function TopBar() {
     setMode,
   } = useUiStore();
   const name = project ? project.split(/[\\/]/).pop() || project : "";
-  const bridgeLabel = bridge.compiling
-    ? "Compiling"
+  const bridgeLabel = bridge.importing
+    ? "Importing"
     : bridge.playMode
       ? "Playing"
       : bridge.friendly;
@@ -72,7 +72,7 @@ export default function TopBar() {
       : totalTokens > 0
         ? formatTokens(totalTokens)
         : null;
-  const statusLabel = `Unity: ${bridgeLabel}${usageLabel ? `. Session usage: ${usageLabel}` : ""}`;
+  const statusLabel = `Godot: ${bridgeLabel}${usageLabel ? `. Session usage: ${usageLabel}` : ""}`;
 
   return (
     <header
@@ -93,7 +93,7 @@ export default function TopBar() {
         <span className="foundry-lockup flex shrink-0 items-center gap-2">
           <Logo />
           <span className="foundry-wordmark text-sm font-semibold tracking-tight text-fg">
-            foundry-unity
+            Foundry <span className="text-godot">/ Godot</span>
           </span>
         </span>
         <span aria-hidden className="h-4 w-px shrink-0 bg-ink-700" />
@@ -156,8 +156,8 @@ export default function TopBar() {
             <IconButton
               label={
                 activityOpen
-                  ? "Hide Unity checks and activity"
-                  : "Show Unity checks and activity"
+                  ? "Hide Godot checks and activity"
+                  : "Show Godot checks and activity"
               }
               active={activityOpen}
               onClick={toggleActivity}

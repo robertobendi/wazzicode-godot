@@ -3,8 +3,8 @@ import { api } from "@/api";
 import { screenshotErrorMessage } from "@/lib/errorMessages";
 import { useChatStore } from "@/stores/useChatStore";
 
-/** Tools whose completion means the selected Unity view likely changed on screen. */
-const REFRESH_RE = /capture|play_mode|step|enter_play|exit_play|set_selection/;
+/** Tools whose completion means the selected Godot viewport likely changed. */
+const REFRESH_RE = /capture|play|set_property|create_node|delete_node|reparent|instantiate|open_scene/;
 
 /** How often to soft-refresh the capture while a run is active + connected. */
 const SOFT_INTERVAL_MS = 10_000;
@@ -20,7 +20,7 @@ export interface LiveScreenshot {
   capture: (kind?: ScreenshotKind) => Promise<void>;
 }
 
-export type ScreenshotKind = "game" | "scene" | "selected";
+export type ScreenshotKind = "2d" | "3d";
 
 /**
  * Owns the latest selected-view capture for the activity panel. Refreshes:
@@ -32,7 +32,7 @@ export function useLiveScreenshot(
   project: string | null,
   connected: boolean,
 ): LiveScreenshot {
-  const [kind, setKind] = useState<ScreenshotKind>("game");
+  const [kind, setKind] = useState<ScreenshotKind>("2d");
   const [pngPath, setPngPath] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(false);

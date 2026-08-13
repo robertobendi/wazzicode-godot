@@ -1,106 +1,279 @@
-import { describe, it, expect } from "vitest";
-import { gateTool, writeTargetOf, UVibeConfigSchema } from "@uvibe/safety";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  CONFIG_PATH_REL,
+  DEFAULT_CONFIG,
+  FAIL_CLOSED_CONFIG,
+  GVibeConfigSchema,
+  appendAction,
+  createSnapshot,
+  gateTool,
+  isWriteTool,
+  listSnapshots,
+  loadConfig,
+  readActions,
+  restoreSnapshot,
+  writeConfig,
+  writeConfigIfMissing,
+  writeTargetOf,
+} from "@gvibe/safety";
 
-const cfg = (over: Record<string, unknown> = {}) => UVibeConfigSchema.parse(over);
+const temporaryProjects: string[] = [];
 
-describe("safety/policy", () => {
-  it("allows non-write tools regardless of mode", () => {
-    expect(gateTool(cfg({ safetyMode: "read_only" }), "unity_get_scene_hierarchy").allowed).toBe(true);
+afterEach(async () => {
+  await Promise.all(temporaryProjects.splice(0).map((project) => rm(project, { recursive: true, force: true })));
+});
+
+async function project(): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gvibe-safety-test-"));
+  temporaryProjects.push(root);
+  return root;
+}
+
+describe("Godot safety configuration", () => {
+  it("defaults to usable scene/resource/script access but locks project settings", () => {
+    expect(DEFAULT_CONFIG).toEqual({
+      safetyMode: "autopilot",
+      allowSceneWrites: true,
+      allowResourceWrites: true,
+      allowScriptWrites: true,
+      allowProjectSettingsWrites: false,
+      allowEditorControl: true,
+      autoSnapshot: true,
+      godotProjectPath: ".",
+      mcpPort: 38587,
+      bridgePort: 38588,
+      mockMode: false,
+    });
+    expect(CONFIG_PATH_REL).toBe(".godot-vibe/config.json");
   });
 
-  it("read_only blocks every write tool", () => {
-    for (const tool of ["unity_set_serialized_field", "unity_add_component", "unity_save_scene"]) {
-      const d = gateTool(cfg({ safetyMode: "read_only" }), tool);
-      expect(d.allowed, tool).toBe(false);
-      expect(d.errorCode).toBe("SAFETY_MODE_BLOCKED");
+  it("writes config once, preserves it, and loads explicit values", async () => {
+    const root = await project();
+    const first = await writeConfigIfMissing(root);
+    const second = await writeConfigIfMissing(root);
+    expect(first).toEqual({ written: true, path: path.join(root, ".godot-vibe", "config.json") });
+    expect(second.written).toBe(false);
+
+    const configured = GVibeConfigSchema.parse({
+      safetyMode: "confirm",
+      allowSceneWrites: false,
+      allowScriptWrites: false,
+      godotProjectPath: root,
+    });
+    await writeConfig(root, configured);
+    expect(await loadConfig(root)).toEqual(configured);
+  });
+
+  it("uses defaults only when config is absent and fails closed when it is malformed or unreadable", async () => {
+    const root = await project();
+    expect(await loadConfig(root)).toEqual(DEFAULT_CONFIG);
+    const result = await writeConfigIfMissing(root);
+    await writeFile(result.path, "{ broken", "utf8");
+    expect(await loadConfig(root)).toEqual(FAIL_CLOSED_CONFIG);
+
+    await rm(result.path);
+    await mkdir(result.path);
+    expect(await loadConfig(root)).toEqual(FAIL_CLOSED_CONFIG);
+  });
+
+  it("does not replace a config path that cannot be accessed safely", async () => {
+    const root = await project();
+    await writeFile(path.join(root, ".godot-vibe"), "not a directory", "utf8");
+    await expect(writeConfigIfMissing(root)).rejects.toThrow();
+  });
+});
+
+describe("Godot tool gating", () => {
+  const config = (values: Record<string, unknown> = {}) => GVibeConfigSchema.parse(values);
+
+  it("uses an exact Godot write-tool table", () => {
+    expect(writeTargetOf("godot_set_property")).toBe("scene");
+    expect(writeTargetOf("godot_instantiate_scene")).toBe("scene");
+    expect(writeTargetOf("godot_open_scene")).toBe("editor");
+    expect(writeTargetOf("godot_create_script")).toBe("script");
+    expect(writeTargetOf("godot_refresh_filesystem")).toBe("editor");
+    expect(writeTargetOf("godot_run_project")).toBe("editor");
+    expect(writeTargetOf("godot_get_scene_tree")).toBeUndefined();
+    expect(writeTargetOf("some_scene_word")).toBeUndefined();
+    expect(isWriteTool("godot_save_scene")).toBe(true);
+    expect(isWriteTool("godot_get_open_scenes")).toBe(false);
+  });
+
+  it("blocks all mutations in read-only and suggest modes", () => {
+    for (const safetyMode of ["read_only", "suggest"] as const) {
+      for (const tool of ["godot_save_scene", "godot_create_script", "godot_open_scene", "godot_refresh_filesystem"]) {
+        const decision = gateTool(config({ safetyMode }), tool);
+        expect(decision.allowed, `${safetyMode}:${tool}`).toBe(false);
+        expect(decision.errorCode).toBe("SAFETY_MODE_BLOCKED");
+        expect(decision.reason).toContain(tool);
+      }
     }
   });
 
-  it("suggest mode proposes but does not apply", () => {
-    expect(gateTool(cfg({ safetyMode: "suggest" }), "unity_add_component").allowed).toBe(false);
+  it("requires a trusted approval channel in confirm mode and honors target locks in autopilot", () => {
+    expect(gateTool(config({ safetyMode: "autopilot", allowSceneWrites: false }), "godot_create_node").allowed).toBe(false);
+    expect(gateTool(config({ safetyMode: "autopilot", allowSceneWrites: true }), "godot_create_node").allowed).toBe(true);
+    expect(gateTool(config({ safetyMode: "confirm", allowScriptWrites: false }), "godot_apply_text_edits").allowed).toBe(false);
+    const confirm = gateTool(config({ safetyMode: "confirm", allowScriptWrites: true }), "godot_apply_text_edits");
+    expect(confirm.allowed).toBe(false);
+    expect(confirm.reason).toContain("no trusted approval signal");
+    expect(gateTool(config({ safetyMode: "autopilot", allowEditorControl: false }), "godot_run_project").allowed).toBe(false);
+    expect(gateTool(config({ safetyMode: "autopilot", allowEditorControl: true }), "godot_run_project").allowed).toBe(true);
+    expect(gateTool(config({ safetyMode: "autopilot", allowResourceWrites: false }), "custom", "resource").allowed).toBe(false);
+    expect(gateTool(config({ safetyMode: "autopilot", allowProjectSettingsWrites: false }), "custom", "project_settings").allowed).toBe(false);
   });
 
-  it("confirm/autopilot honor per-target flags", () => {
-    // Scene writes off → blocked even in autopilot.
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowSceneWrites: false }), "unity_set_serialized_field").allowed).toBe(false);
-    // Scene writes on → allowed.
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowSceneWrites: true }), "unity_set_serialized_field").allowed).toBe(true);
-    expect(gateTool(cfg({ safetyMode: "confirm", allowSceneWrites: true }), "unity_save_scene").allowed).toBe(true);
-  });
-
-  it("classifies write targets explicitly (regression: no substring matching)", () => {
-    // The old substring gate matched 'scene' in unity_save_scene but missed set_serialized_field.
-    expect(writeTargetOf("unity_save_scene")).toBe("scene");
-    expect(writeTargetOf("unity_set_serialized_field")).toBe("scene");
-    expect(writeTargetOf("unity_create_prefab_variant")).toBe("prefab");
-    expect(writeTargetOf("unity_get_scene_hierarchy")).toBeUndefined();
-  });
-
-  it("prefab writes need allowPrefabWrites", () => {
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowPrefabWrites: false }), "unity_create_prefab_variant").allowed).toBe(false);
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowPrefabWrites: true }), "unity_create_prefab_variant").allowed).toBe(true);
-  });
-
-  it("classifies the new write tools (layout/prefab/asset/editor)", () => {
-    expect(writeTargetOf("unity_set_transform")).toBe("scene");
-    expect(writeTargetOf("unity_reparent")).toBe("scene");
-    expect(writeTargetOf("unity_paint_tilemap")).toBe("scene");
-    expect(writeTargetOf("unity_save_prefab")).toBe("prefab");
-    expect(writeTargetOf("unity_apply_prefab_instance")).toBe("prefab");
-    expect(writeTargetOf("unity_import_asset")).toBe("asset");
-    expect(writeTargetOf("unity_slice_sprite")).toBe("asset");
-    expect(writeTargetOf("unity_animator_edit_transition")).toBe("asset");
-    expect(writeTargetOf("unity_execute_menu_item")).toBe("editor");
-    // Deletes are gated like their create counterparts.
-    expect(writeTargetOf("unity_delete_gameobject")).toBe("scene");
-    expect(writeTargetOf("unity_remove_component")).toBe("scene");
-    expect(writeTargetOf("unity_delete_asset")).toBe("asset");
-    // Non-write navigation/runtime tools must not be gated.
-    expect(writeTargetOf("unity_open_scene")).toBeUndefined();
-    expect(writeTargetOf("unity_simulate_input")).toBeUndefined();
-    expect(writeTargetOf("unity_get_animator_state")).toBeUndefined();
-  });
-
-  it("asset writes need allowAssetWrites", () => {
-    // Default config has allowAssetWrites=true, so asset creation is allowed under autopilot.
-    expect(gateTool(cfg({ safetyMode: "autopilot" }), "unity_create_material").allowed).toBe(true);
-    // Turning it off blocks asset creation even in autopilot.
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowAssetWrites: false }), "unity_create_material").allowed).toBe(false);
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowAssetWrites: false }), "unity_import_asset").allowed).toBe(false);
-    // read_only blocks regardless.
-    expect(gateTool(cfg({ safetyMode: "read_only", allowAssetWrites: true }), "unity_create_material").allowed).toBe(false);
-  });
-
-  it("gates delete tools by their target flags", () => {
-    // Scene deletes follow allowSceneWrites.
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowSceneWrites: false }), "unity_delete_gameobject").allowed).toBe(false);
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowSceneWrites: true }), "unity_delete_gameobject").allowed).toBe(true);
-    expect(gateTool(cfg({ safetyMode: "confirm", allowSceneWrites: true }), "unity_remove_component").allowed).toBe(true);
-    // Asset deletes follow allowAssetWrites.
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowAssetWrites: false }), "unity_delete_asset").allowed).toBe(false);
-    expect(gateTool(cfg({ safetyMode: "autopilot" }), "unity_delete_asset").allowed).toBe(true);
-    // read_only blocks all of them.
-    expect(gateTool(cfg({ safetyMode: "read_only" }), "unity_delete_gameobject").allowed).toBe(false);
-  });
-
-  it("editor menu execution needs allowMenuItems", () => {
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowMenuItems: false }), "unity_execute_menu_item").allowed).toBe(false);
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowMenuItems: true }), "unity_execute_menu_item").allowed).toBe(true);
-    // read_only blocks it regardless of allowMenuItems.
-    expect(gateTool(cfg({ safetyMode: "read_only", allowMenuItems: true }), "unity_execute_menu_item").allowed).toBe(false);
-  });
-
-  it("code execution is ready by default but still obeys an explicit lock", () => {
-    expect(writeTargetOf("unity_execute_code")).toBe("code");
-    expect(gateTool(cfg({ safetyMode: "autopilot" }), "unity_execute_code").allowed).toBe(true);
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowCodeExecution: false }), "unity_execute_code").allowed).toBe(false);
-  });
-
-  it("script writes need allowScriptWrites", () => {
-    expect(writeTargetOf("unity_create_script")).toBe("script");
-    expect(writeTargetOf("unity_apply_text_edits")).toBe("script");
-    expect(writeTargetOf("unity_script_edit")).toBe("script");
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowScriptWrites: false }), "unity_create_script").allowed).toBe(false);
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowScriptWrites: true }), "unity_apply_text_edits").allowed).toBe(true);
+  it("never gates read-only inspection tools", () => {
+    const locked = config({ safetyMode: "read_only" });
+    for (const tool of ["godot_orient", "godot_reflect", "godot_capture_2d_view", "godot_read_script"]) {
+      expect(gateTool(locked, tool).allowed, tool).toBe(true);
+    }
   });
 });
+
+describe("snapshots and action history", () => {
+  it("stores and restores nested project files under .godot-vibe/snapshots", async () => {
+    const root = await project();
+    const scene = path.join(root, "scenes", "main.tscn");
+    await writeFileWithParents(scene, "[node name=\"Before\" type=\"Node2D\"]\n");
+
+    const snapshot = await createSnapshot(root, ["scenes/main.tscn", "scripts/not-created-yet.gd"]);
+    expect(snapshot.rootDir).toContain(path.join(root, ".godot-vibe", "snapshots"));
+    expect(snapshot.files).toEqual(["scenes/main.tscn"]);
+    expect(snapshot.absent).toEqual(["scripts/not-created-yet.gd"]);
+    await access(path.join(snapshot.rootDir, "manifest.json"));
+    await access(path.join(snapshot.rootDir, "scenes", "main.tscn"));
+
+    await writeFile(scene, "[node name=\"After\" type=\"Node2D\"]\n", "utf8");
+    await writeFileWithParents(path.join(root, "scripts", "not-created-yet.gd"), "extends Node\n");
+    expect(await listSnapshots(root)).toEqual([snapshot]);
+    const restored = await restoreSnapshot(root, snapshot.id);
+    expect(restored.restored).toEqual(["scenes/main.tscn"]);
+    expect(restored.removed).toEqual(["scripts/not-created-yet.gd"]);
+    expect(restored.undoSnapshotId).not.toBe(snapshot.id);
+    expect(await readFile(scene, "utf8")).toContain("Before");
+    await expect(access(path.join(root, "scripts", "not-created-yet.gd"))).rejects.toThrow();
+
+    const undone = await restoreSnapshot(root, restored.undoSnapshotId);
+    expect(undone.restored).toEqual(["scenes/main.tscn", "scripts/not-created-yet.gd"]);
+    expect(undone.removed).toEqual([]);
+    expect(await readFile(scene, "utf8")).toContain("After");
+    expect(await readFile(path.join(root, "scripts", "not-created-yet.gd"), "utf8"))
+      .toBe("extends Node\n");
+  });
+
+  it("rejects snapshot reads and restores through symlinks that leave the project", async () => {
+    const root = await project();
+    const outside = await project();
+    await writeFile(path.join(outside, "outside.gd"), "extends Node\n", "utf8");
+    await symlink(outside, path.join(root, "escape"));
+    await expect(createSnapshot(root, ["res://escape/outside.gd"])).rejects.toThrow("outside the Godot project");
+
+    const scene = path.join(root, "scenes", "main.tscn");
+    await writeFileWithParents(scene, "[node name=\"Safe\" type=\"Node\"]\n");
+    const snapshot = await createSnapshot(root, ["scenes/main.tscn"]);
+    await rm(path.join(root, "scenes"), { recursive: true });
+    await symlink(outside, path.join(root, "scenes"));
+    await expect(restoreSnapshot(root, snapshot.id)).rejects.toThrow("outside the Godot project");
+    expect(await readFile(path.join(outside, "outside.gd"), "utf8")).toBe("extends Node\n");
+  });
+
+  it("publishes distinct complete snapshots when many are created in the same millisecond", async () => {
+    const root = await project();
+    await writeFileWithParents(path.join(root, "scripts", "player.gd"), "extends Node\n");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_723_456_789_000);
+    let snapshots: Awaited<ReturnType<typeof createSnapshot>>[] = [];
+    try {
+      snapshots = await Promise.all(
+        Array.from({ length: 24 }, () => createSnapshot(root, ["scripts/player.gd"]))
+      );
+    } finally {
+      clock.mockRestore();
+    }
+
+    expect(new Set(snapshots.map((snapshot) => snapshot.id)).size).toBe(snapshots.length);
+    const listed = await listSnapshots(root);
+    expect(new Set(listed.map((snapshot) => snapshot.id))).toEqual(
+      new Set(snapshots.map((snapshot) => snapshot.id))
+    );
+    for (const snapshot of snapshots) {
+      const entries = await readdir(snapshot.rootDir);
+      expect(entries).toContain("manifest.json");
+      expect(entries.some((entry) => entry.endsWith(".tmp"))).toBe(false);
+      const manifest = JSON.parse(await readFile(path.join(snapshot.rootDir, "manifest.json"), "utf8")) as { id: string };
+      expect(manifest.id).toBe(snapshot.id);
+    }
+  });
+
+  it("preflights every snapshot entry before changing project files", async () => {
+    const root = await project();
+    const first = path.join(root, "scripts", "first.gd");
+    const second = path.join(root, "scripts", "second.gd");
+    await writeFileWithParents(first, "first before\n");
+    await writeFileWithParents(second, "second before\n");
+    const snapshot = await createSnapshot(root, ["scripts/first.gd", "scripts/second.gd"]);
+    await writeFile(first, "first after\n", "utf8");
+    await writeFile(second, "second after\n", "utf8");
+    await rm(path.join(snapshot.rootDir, "scripts", "second.gd"));
+    await mkdir(path.join(snapshot.rootDir, "scripts", "second.gd"));
+
+    await expect(restoreSnapshot(root, snapshot.id)).rejects.toThrow("not a regular file");
+    expect(await readFile(first, "utf8")).toBe("first after\n");
+    expect(await readFile(second, "utf8")).toBe("second after\n");
+    expect(await listSnapshots(root)).toHaveLength(1);
+  });
+
+  it("rejects manifests that target generated state or claim a different id", async () => {
+    const root = await project();
+    await writeFileWithParents(path.join(root, "scripts", "player.gd"), "extends Node\n");
+    const snapshot = await createSnapshot(root, ["scripts/player.gd"]);
+    const manifestPath = path.join(snapshot.rootDir, "manifest.json");
+    const original = JSON.parse(await readFile(manifestPath, "utf8"));
+
+    await writeFile(manifestPath, JSON.stringify({ ...original, id: "different" }), "utf8");
+    await expect(restoreSnapshot(root, snapshot.id)).rejects.toThrow("id does not match");
+
+    await writeFile(manifestPath, JSON.stringify({
+      ...original,
+      files: [".godot-vibe/config.json"],
+      absent: [],
+    }), "utf8");
+    await expect(restoreSnapshot(root, snapshot.id)).rejects.toThrow("invalid project path");
+
+    await writeFile(manifestPath, JSON.stringify({
+      ...original,
+      files: ["scripts/../scripts/player.gd"],
+      absent: [],
+    }), "utf8");
+    await expect(restoreSnapshot(root, snapshot.id)).rejects.toThrow("invalid project path");
+  });
+
+  it("appends JSONL actions and returns the newest bounded tail", async () => {
+    const root = await project();
+    await appendAction(root, { timestamp: 1, tool: "godot_create_node", result: "ok" });
+    await appendAction(root, { timestamp: 2, tool: "godot_save_scene", result: "blocked", errorCode: "SAFETY_MODE_BLOCKED" });
+    await appendAction(root, { timestamp: 3, tool: "godot_apply_text_edits", result: "ok", snapshotId: "snapshot-1" });
+
+    expect(await readActions(root, 2)).toEqual([
+      { timestamp: 2, tool: "godot_save_scene", result: "blocked", errorCode: "SAFETY_MODE_BLOCKED" },
+      { timestamp: 3, tool: "godot_apply_text_edits", result: "ok", snapshotId: "snapshot-1" },
+    ]);
+    const raw = await readFile(path.join(root, ".godot-vibe", "action_log.jsonl"), "utf8");
+    expect(raw.trim().split("\n")).toHaveLength(3);
+  });
+
+  it("returns empty history when no Godot Vibe state exists", async () => {
+    const root = await project();
+    expect(await listSnapshots(root)).toEqual([]);
+    expect(await readActions(root)).toEqual([]);
+  });
+});
+
+async function writeFileWithParents(file: string, contents: string): Promise<void> {
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, contents, "utf8");
+}

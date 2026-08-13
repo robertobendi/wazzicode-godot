@@ -1,9 +1,9 @@
 {
-  "name": "@uvibe/desktop",
+  "name": "@gvibe/desktop",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.1.0",
   "type": "module",
-  "description": "foundry-unity — chat-first desktop app for AI-assisted Unity work.",
+  "description": "Foundry for Godot — a scene-aware desktop app for AI-assisted Godot work.",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -11,12 +11,12 @@
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "bundle:uvibe": "node scripts/bundle-uvibe.mjs",
+    "bundle:gvibe": "node scripts/bundle-gvibe.mjs",
     "bundle:sidecar": "node scripts/fetch-node-sidecar.mjs",
     "bundle:whisper": "node scripts/fetch-whisper.mjs",
-    "bundle": "node scripts/bundle-uvibe.mjs && node scripts/fetch-node-sidecar.mjs && node scripts/fetch-whisper.mjs"
+    "bundle": "node scripts/bundle-gvibe.mjs && node scripts/fetch-node-sidecar.mjs && node scripts/fetch-whisper.mjs"
   },
-  "//tauri-build": "Package with: `pnpm --filter @uvibe/desktop bundle` (bundles uvibe.cjs + fetches the host Node sidecar + vendors the offline dictation model) then `pnpm --filter @uvibe/desktop tauri build -- --config src-tauri/tauri.bundle.conf.json`. In CI, run fetch-node-sidecar.mjs once per --target before each matrix build; fetch-whisper.mjs is host-agnostic and only needs to run once.",
+  "//tauri-build": "Package with: `pnpm --filter @gvibe/desktop bundle`, then `pnpm --filter @gvibe/desktop tauri build --config src-tauri/tauri.bundle.conf.json`.",
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@tauri-apps/api": "^2.1.1",

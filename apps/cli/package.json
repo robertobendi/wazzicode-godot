@@ -1,13 +1,11 @@
 {
-  "name": "@uvibe/cli",
-  "version": "0.5.2",
+  "name": "@gvibe/cli",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "uvibe": "./bin/uvibe"
-  },
+  "bin": { "gvibe": "./bin/gvibe" },
   "files": [
     "dist",
     "bin"
@@ -17,10 +15,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@uvibe/bridge-client": "workspace:*",
-    "@uvibe/core": "workspace:*",
-    "@uvibe/mcp-server": "workspace:*",
-    "@uvibe/project-brain": "workspace:*",
-    "@uvibe/safety": "workspace:*"
+    "@gvibe/bridge-client": "workspace:*",
+    "@gvibe/core": "workspace:*",
+    "@gvibe/mcp-server": "workspace:*",
+    "@gvibe/project-brain": "workspace:*",
+    "@gvibe/safety": "workspace:*"
   }
 }

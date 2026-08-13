@@ -23,7 +23,7 @@ const STEP = {
 /**
  * First-run wizard. Subsumes the pairing gate + project pick on a fresh install:
  * pick the agent and detect/install its CLI → pick project → prepare it →
- * sign in / connect the account → confirm Unity connects. Completing sets
+ * sign in / connect the account → confirm Godot connects. Completing sets
  * settings.onboarded.
  *
  * Everything after step 1 is backend-aware: the "Connect" step routes to the

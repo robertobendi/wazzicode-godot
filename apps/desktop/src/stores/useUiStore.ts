@@ -30,7 +30,7 @@ interface UiState {
 
 // The session rail's open/closed state is the one bit of shell UI we persist,
 // so a user who prefers it collapsed keeps that between launches.
-const RAIL_KEY = "uvibe.sessionRailOpen";
+const RAIL_KEY = "gvibe.sessionRailOpen";
 
 function loadRailOpen(): boolean {
   try {

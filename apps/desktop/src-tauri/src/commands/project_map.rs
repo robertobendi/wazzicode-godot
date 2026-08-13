@@ -1,4 +1,4 @@
-//! Read, search, and refresh the canonical per-project knowledge store.
+//! Read, search, and refresh the canonical Godot project brain.
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, State};
 
-const KNOWLEDGE_SCHEMA_VERSION: u32 = 1;
+const KNOWLEDGE_SCHEMA_VERSION: u32 = 2;
 const MAX_QUERY_RESULTS: usize = 50;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,7 +32,7 @@ pub struct KnowledgeProject {
     pub id: String,
     pub path: String,
     pub name: String,
-    pub is_unity_project: bool,
+    pub is_godot_project: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,9 +60,10 @@ pub struct KnowledgeScanError {
 pub struct KnowledgeCounts {
     pub files: u64,
     pub first_party_scripts: u64,
-    pub package_scripts: u64,
+    pub addon_scripts: u64,
     pub scenes: u64,
-    pub prefabs: u64,
+    pub resources: u64,
+    pub shaders: u64,
     pub entities: u64,
     pub relations: u64,
 }
@@ -71,7 +72,7 @@ pub struct KnowledgeCounts {
 #[serde(rename_all = "camelCase")]
 pub struct KnowledgeScopes {
     pub first_party: KnowledgeScope,
-    pub packages: KnowledgeScope,
+    pub addons: KnowledgeScope,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,7 +184,7 @@ pub struct ProjectMapQueryResult {
 /// Cheap readiness probe for project selection. Full parsing and count
 /// validation remain in `load_project_map` when the drawer actually opens.
 pub fn project_map_is_initialized(project: &Path) -> bool {
-    let directory = project.join(".unity-vibe").join("knowledge");
+    let directory = project.join(".godot-vibe").join("brain");
     let required = [
         "manifest.json",
         "entities.jsonl",
@@ -196,7 +197,9 @@ pub fn project_map_is_initialized(project: &Path) -> bool {
     std::fs::read(directory.join("manifest.json"))
         .ok()
         .and_then(|raw| serde_json::from_slice::<KnowledgeManifest>(&raw).ok())
-        .map(|manifest| manifest.schema_version == KNOWLEDGE_SCHEMA_VERSION)
+        .map(|manifest| {
+            manifest.schema_version == KNOWLEDGE_SCHEMA_VERSION && !manifest.dirty.value
+        })
         .unwrap_or(false)
 }
 
@@ -324,15 +327,15 @@ pub async fn ask_project_map(
 
 fn ask_prompt(project: &str, question: &str) -> String {
     format!(
-        "You are answering a question about a Unity project. This is a READ-ONLY task: \
+        "You are answering a question about a Godot project. This is a READ-ONLY task: \
          explain what is there, change nothing.\n\n\
          PROJECT: {project}\n\n\
          QUESTION:\n{question}\n\n\
-         The project map is already built at `.unity-vibe/knowledge/` — start there rather than \
+         The project map is already built at `.godot-vibe/brain/` — start there rather than \
          scanning the whole project:\n\
          - `entities.jsonl`: one JSON object per line with `id`, `kind` \
-         (project|package|scene|prefab|script|type|module), `name`, `path`.\n\
-         - `relations.jsonl`: `kind` (contains|declares|derives|references), `from`, `to` \
+         (project|addon|scene|resource|script|class|module|shader), `name`, `path`.\n\
+         - `relations.jsonl`: `kind` (contains|declares|extends|references|instantiates), `from`, `to` \
          (entity ids).\n\
          - `index.md`: a human-readable overview.\n\
          Grep those files first, then read the specific source files you still need.\n\n\
@@ -400,12 +403,12 @@ async fn reconcile_project_map(
         .executions
         .try_acquire(&project_path)
         .ok_or_else(|| AppError::Other("busy: another task is using this project".into()))?;
-    let (command, prefix) = crate::mcpconfig::resolve_uvibe(&app);
+    let (command, prefix) = crate::mcpconfig::resolve_gvibe(&app);
 
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let args = brain_args(&project, ensure);
-        let command = crate::mcpconfig::resolved_uvibe_command(&command, &prefix, &args)?;
+        let command = crate::mcpconfig::resolved_gvibe_command(&command, &prefix, &args)?;
         let output = crate::proc::output_with_timeout(command, Duration::from_secs(600))?;
         if !output.status.success() {
             let operation = if ensure { "reconciliation" } else { "refresh" };
@@ -415,7 +418,7 @@ async fn reconcile_project_map(
             )));
         }
         load_project_map(Path::new(&project))?.ok_or_else(|| {
-            AppError::Other("uvibe brain finished without writing a canonical project map".into())
+            AppError::Other("gvibe brain finished without writing a canonical project map".into())
         })
     })
     .await
@@ -432,7 +435,7 @@ fn brain_args(project: &str, ensure: bool) -> Vec<String> {
 }
 
 fn load_project_map(project: &Path) -> AppResult<Option<ProjectMapData>> {
-    let directory = project.join(".unity-vibe").join("knowledge");
+    let directory = project.join(".godot-vibe").join("brain");
     let manifest_path = directory.join("manifest.json");
     if !manifest_path.is_file() {
         return Ok(None);
@@ -638,7 +641,7 @@ impl From<&KnowledgeManifest> for ProjectMapRevision {
 }
 
 fn project_map_revision(project: &Path) -> Option<ProjectMapRevision> {
-    let manifest = std::fs::read(project.join(".unity-vibe/knowledge/manifest.json")).ok()?;
+    let manifest = std::fs::read(project.join(".godot-vibe/brain/manifest.json")).ok()?;
     serde_json::from_slice::<KnowledgeManifest>(&manifest)
         .ok()
         .map(|manifest| ProjectMapRevision::from(&manifest))
@@ -667,7 +670,7 @@ struct QueryScoringContext {
     tokens: Vec<String>,
     raw_query: String,
     natural_question: bool,
-    package_intent: bool,
+    addon_intent: bool,
     test_intent: bool,
     kind_intents: HashSet<String>,
 }
@@ -743,13 +746,12 @@ fn normalize_query_token(token: &str) -> String {
 }
 
 fn query_scoring_context(raw_query: &str) -> QueryScoringContext {
-    static PACKAGE_NAME: OnceLock<regex::Regex> = OnceLock::new();
     let tokens = tokenize_query(raw_query);
     let kind_intents = tokens
         .iter()
         .filter_map(|token| {
             if matches!(token.as_str(), "class" | "struct" | "interface" | "enum") {
-                Some("type".to_string())
+                Some("class".to_string())
             } else if is_entity_kind(token) {
                 Some(token.clone())
             } else {
@@ -764,12 +766,8 @@ fn query_scoring_context(raw_query: &str) -> QueryScoringContext {
             "how" | "what" | "where" | "which" | "who" | "why"
         ) || is_query_intent_stopword(token)
     });
-    let package_intent = kind_intents.contains("package")
-        || PACKAGE_NAME
-            .get_or_init(|| {
-                regex::Regex::new(r"(?i)(?:^|[^a-z0-9])com\.[a-z0-9]").expect("package name regex")
-            })
-            .is_match(raw_query);
+    let addon_intent =
+        kind_intents.contains("addon") || raw_tokens.iter().any(|token| token == "plugin");
     let test_intent = raw_tokens
         .iter()
         .any(|token| matches!(token.as_str(), "test" | "testing" | "editor"));
@@ -777,7 +775,7 @@ fn query_scoring_context(raw_query: &str) -> QueryScoringContext {
         tokens,
         raw_query: raw_query.to_string(),
         natural_question,
-        package_intent,
+        addon_intent,
         test_intent,
         kind_intents,
     }
@@ -826,8 +824,8 @@ fn lexical_score(entity: &KnowledgeEntity, context: &QueryScoringContext) -> u32
     if score == 0 {
         return 0;
     }
-    if context.package_intent {
-        if entity.scope == "package" {
+    if context.addon_intent {
+        if entity.scope == "addon" {
             score += 24;
         }
     } else if entity.scope == "first-party" {
@@ -836,12 +834,12 @@ fn lexical_score(entity: &KnowledgeEntity, context: &QueryScoringContext) -> u32
         score = score.saturating_sub(6);
     }
     if context.natural_question && context.kind_intents.is_empty() {
-        if entity.kind == "type" {
+        if entity.kind == "class" {
             score += 14;
         } else if entity.kind == "script" {
             score += 9;
         }
-        if matches!(entity.kind.as_str(), "type" | "script")
+        if matches!(entity.kind.as_str(), "class" | "script")
             && name_tokens.iter().any(|token| {
                 matches!(
                     token.as_str(),
@@ -888,14 +886,14 @@ fn relation_query_matches(
     if let Some(target) = derived_target_from_query(raw_query) {
         let target_ids = entities
             .iter()
-            .filter(|entity| entity.kind == "type" && entity_matches_name(entity, &target))
+            .filter(|entity| entity.kind == "class" && entity_matches_name(entity, &target))
             .map(|entity| entity.id.as_str())
             .collect::<HashSet<_>>();
         return Some(unique_ranked(
             relations
                 .iter()
                 .filter(|relation| {
-                    relation.kind == "derives" && target_ids.contains(relation.to.as_str())
+                    relation.kind == "extends" && target_ids.contains(relation.to.as_str())
                 })
                 .filter_map(|relation| entity_by_id.get(relation.from.as_str()).copied())
                 .map(|entity| ProjectMapSearchHit {
@@ -956,7 +954,7 @@ fn relation_query_matches(
     let dependency = dependency_target_from_query(raw_query)?;
     let subject_ids = entities
         .iter()
-        .filter(|entity| entity.kind == "type" && entity_matches_name(entity, &dependency.target))
+        .filter(|entity| entity.kind == "class" && entity_matches_name(entity, &dependency.target))
         .map(|entity| entity.id.as_str())
         .collect::<HashSet<_>>();
     if subject_ids.is_empty() {
@@ -965,7 +963,12 @@ fn relation_query_matches(
     Some(unique_ranked(
         relations
             .iter()
-            .filter(|relation| matches!(relation.kind.as_str(), "references" | "derives"))
+            .filter(|relation| {
+                matches!(
+                    relation.kind.as_str(),
+                    "references" | "extends" | "instantiates"
+                )
+            })
             .filter_map(|relation| {
                 let related = if dependency.incoming {
                     subject_ids
@@ -999,7 +1002,7 @@ fn derived_target_from_query(query: &str) -> Option<String> {
             regex::Regex::new(
                 r"(?i)\b(?:types?|classes?)\s+(?:that\s+)?(?:derive|derived|inherit|inheriting|extend|extending)\s+(?:from\s+)?([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)",
             )
-            .expect("derived type query regex")
+            .expect("extended class query regex")
         }),
         SUBCLASSES.get_or_init(|| {
             regex::Regex::new(
@@ -1021,7 +1024,7 @@ fn module_contents_target_from_query(query: &str) -> Option<String> {
     MODULE_CONTENTS
         .get_or_init(|| {
             regex::Regex::new(
-                r"(?i)\bscripts?\s+(?:contained\s+)?in\s+(?:the\s+)?(.+?)\s+modules?\b",
+                r"(?i)\bscripts?\s+(?:contained\s+)?in\s+(?:the\s+)?(.+?)\s+(?:modules?|folders?|directories?)\b",
             )
             .expect("module contents query regex")
         })
@@ -1050,8 +1053,7 @@ fn dependency_target_from_query(query: &str) -> Option<DependencyIntent> {
 fn entity_matches_name(entity: &KnowledgeEntity, expected: &str) -> bool {
     entity.name.eq_ignore_ascii_case(expected)
         || entity.facts.iter().any(|fact| {
-            fact.key == "qualifiedName"
-                && fact_value_text(&fact.value).eq_ignore_ascii_case(expected)
+            fact.key == "className" && fact_value_text(&fact.value).eq_ignore_ascii_case(expected)
         })
 }
 
@@ -1080,7 +1082,7 @@ fn scope_priority(scope: &str) -> u8 {
     match scope {
         "first-party" => 0,
         "project" => 1,
-        "package" => 2,
+        "addon" => 2,
         "external" => 3,
         _ => 4,
     }
@@ -1089,7 +1091,7 @@ fn scope_priority(scope: &str) -> u8 {
 fn is_entity_kind(value: &str) -> bool {
     matches!(
         value,
-        "project" | "package" | "scene" | "prefab" | "script" | "type" | "module"
+        "project" | "addon" | "scene" | "resource" | "script" | "class" | "module" | "shader"
     )
 }
 
@@ -1175,7 +1177,7 @@ fn process_detail(primary: &[u8], fallback: &[u8]) -> String {
             return line.trim().to_string();
         }
     }
-    "uvibe brain exited unsuccessfully".into()
+    "gvibe brain exited unsuccessfully".into()
 }
 
 #[cfg(test)]
@@ -1184,28 +1186,28 @@ mod tests {
 
     #[test]
     fn an_answer_keeps_only_entity_ids_that_exist() {
-        let known: HashSet<&str> = ["script:Player.cs", "type:Player"].into_iter().collect();
+        let known: HashSet<&str> = ["script:Player.gd", "class:Player"].into_iter().collect();
         let answer = parse_answer(
             "Sure.\n```json\n{\"answer\":\"It moves the player.\",\"entities\":\
-             [\"type:Player\",\"type:Ghost\",\"type:Player\"]}\n```",
+             [\"class:Player\",\"class:Ghost\",\"class:Player\"]}\n```",
             &known,
         );
         assert_eq!(answer.answer, "It moves the player.");
         // The unknown id is dropped and the repeat collapsed, so every chip the
         // drawer renders resolves to something selectable.
-        assert_eq!(answer.entity_ids, vec!["type:Player".to_string()]);
+        assert_eq!(answer.entity_ids, vec!["class:Player".to_string()]);
     }
 
     #[test]
     fn a_reply_without_a_json_block_still_shows_its_prose() {
         let known: HashSet<&str> = HashSet::new();
-        let answer = parse_answer("There are 42 textures under Assets/Art.", &known);
-        assert_eq!(answer.answer, "There are 42 textures under Assets/Art.");
+        let answer = parse_answer("There are 42 textures under res://art.", &known);
+        assert_eq!(answer.answer, "There are 42 textures under res://art.");
         assert!(answer.entity_ids.is_empty());
     }
 
     fn store_path(root: &Path, name: &str) -> PathBuf {
-        root.join(".unity-vibe").join("knowledge").join(name)
+        root.join(".godot-vibe").join("brain").join(name)
     }
 
     fn write_records<T: Serialize>(path: &Path, records: &[T]) {
@@ -1235,17 +1237,17 @@ mod tests {
 
     fn fixture_store() -> (PathBuf, KnowledgeManifest) {
         let root =
-            std::env::temp_dir().join(format!("unity-vibe-project-map-{}", nanoid::nanoid!(10)));
-        let directory = root.join(".unity-vibe").join("knowledge");
+            std::env::temp_dir().join(format!("godot-vibe-project-map-{}", nanoid::nanoid!(10)));
+        let directory = root.join(".godot-vibe").join("brain");
         std::fs::create_dir_all(&directory).unwrap();
         let mut manifest = KnowledgeManifest {
-            schema_version: 1,
+            schema_version: 2,
             generated_at: now_ms(),
             project: KnowledgeProject {
                 id: "project:sample".into(),
                 path: ".".into(),
                 name: "Sample".into(),
-                is_unity_project: true,
+                is_godot_project: true,
             },
             coverage: KnowledgeCoverage {
                 cap: 100,
@@ -1257,21 +1259,22 @@ mod tests {
                 counts: KnowledgeCounts {
                     files: 2,
                     first_party_scripts: 1,
-                    package_scripts: 0,
+                    addon_scripts: 0,
                     scenes: 0,
-                    prefabs: 0,
+                    resources: 0,
+                    shaders: 0,
                     entities: 2,
                     relations: 1,
                 },
                 scopes: KnowledgeScopes {
                     first_party: KnowledgeScope {
-                        root: "Assets".into(),
+                        root: "res://".into(),
                         discovered: 2,
                         scanned: 2,
                         scripts: 1,
                     },
-                    packages: KnowledgeScope {
-                        root: "Packages".into(),
+                    addons: KnowledgeScope {
+                        root: "res://addons".into(),
                         discovered: 0,
                         scanned: 0,
                         scripts: 0,
@@ -1289,17 +1292,17 @@ mod tests {
             },
         };
         let provenance = KnowledgeProvenance {
-            source: "csharp-text".into(),
-            path: "Assets/PlayerController.cs".into(),
+            source: "gdscript-text".into(),
+            path: "res://player_controller.gd".into(),
             line: Some(3),
-            evidence: Some("class PlayerController : MonoBehaviour".into()),
+            evidence: Some("class_name PlayerController extends CharacterBody2D".into()),
             heuristic: None,
         };
         let script = KnowledgeEntity {
             id: "script:player".into(),
             kind: "script".into(),
-            name: "PlayerController.cs".into(),
-            path: Some("Assets/PlayerController.cs".into()),
+            name: "PlayerController.gd".into(),
+            path: Some("res://player_controller.gd".into()),
             scope: "first-party".into(),
             facts: vec![KnowledgeFact {
                 key: "purpose".into(),
@@ -1310,8 +1313,8 @@ mod tests {
             }],
         };
         let entity_type = KnowledgeEntity {
-            id: "type:player".into(),
-            kind: "type".into(),
+            id: "class:player".into(),
+            kind: "class".into(),
             name: "PlayerController".into(),
             path: None,
             scope: "first-party".into(),
@@ -1329,7 +1332,7 @@ mod tests {
             id: "declares:player".into(),
             kind: "declares".into(),
             from: "script:player".into(),
-            to: "type:player".into(),
+            to: "class:player".into(),
             provenance,
             observed_at: now_ms(),
             confidence: None,
@@ -1372,8 +1375,8 @@ mod tests {
             from: from.into(),
             to: to.into(),
             provenance: KnowledgeProvenance {
-                source: "csharp-text".into(),
-                path: "Assets/Test.cs".into(),
+                source: "gdscript-text".into(),
+                path: "res://test.gd".into(),
                 line: Some(1),
                 evidence: None,
                 heuristic: None,
@@ -1391,6 +1394,11 @@ mod tests {
         assert_eq!(map.entities.len(), 2);
         assert_eq!(map.relations.len(), 1);
         assert!(project_map_is_initialized(&root));
+        let manifest_path = store_path(&root, "manifest.json");
+        let mut dirty = manifest;
+        dirty.dirty.value = true;
+        std::fs::write(&manifest_path, serde_json::to_vec(&dirty).unwrap()).unwrap();
+        assert!(!project_map_is_initialized(&root));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1404,11 +1412,11 @@ mod tests {
     }
 
     #[test]
-    fn hashes_typescript_jsonl_bytes_with_omitted_optional_fields() {
-        let entities = b"{\"id\":\"type:external:MonoBehaviour\",\"kind\":\"type\",\"name\":\"MonoBehaviour\",\"scope\":\"external\",\"facts\":[]}\n";
+    fn hashes_project_brain_jsonl_bytes_with_omitted_optional_fields() {
+        let entities = b"{\"id\":\"class:external:Node\",\"kind\":\"class\",\"name\":\"Node\",\"scope\":\"external\",\"facts\":[]}\n";
         assert_eq!(
             knowledge_content_fingerprint(entities, b""),
-            "379d2c79a242a317365a85d16fde907e02f8c7d066e9898af25f3157a49fa829"
+            "d9d5bf78d1860716836401f00baac46e2c3ea1850a55e2f697449542d04c8452"
         );
 
         let entity: KnowledgeEntity =
@@ -1431,7 +1439,7 @@ mod tests {
 
         let player = search_entities(map.entities, &map.relations, "playercontroller", 20);
         assert_eq!(player.len(), 1);
-        assert_eq!(player[0].entity.id, "type:player");
+        assert_eq!(player[0].entity.id, "class:player");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1441,10 +1449,10 @@ mod tests {
         let map = load_project_map(&root).unwrap().expect("map");
         let mut entities = map.entities;
         entities.push(KnowledgeEntity {
-            id: "type:save-system".into(),
-            kind: "type".into(),
+            id: "class:save-system".into(),
+            kind: "class".into(),
             name: "SaveSystem".into(),
-            path: Some("Assets/Systems/SaveSystem.cs".into()),
+            path: Some("res://systems/save_system.gd".into()),
             scope: "first-party".into(),
             facts: Vec::new(),
         });
@@ -1452,26 +1460,26 @@ mod tests {
         let hits = search_entities(entities, &map.relations, "what handles saving?", 20);
         assert_eq!(
             hits.first().map(|hit| hit.entity.id.as_str()),
-            Some("type:save-system")
+            Some("class:save-system")
         );
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn natural_runtime_questions_do_not_rank_test_types_above_the_owner() {
+    fn natural_runtime_questions_do_not_rank_test_classes_above_the_owner() {
         let mut owner = test_entity(
-            "type:level-manager",
-            "type",
+            "class:level-manager",
+            "class",
             "LevelManager",
             "first-party",
-            Some("Assets/Scripts/Managers/LevelManager.cs"),
+            Some("res://scripts/managers/level_manager.gd"),
         );
         owner.facts.push(KnowledgeFact {
-            key: "memberSignature".into(),
-            value: Value::String("private void SpawnScheduledTargets()".into()),
+            key: "function".into(),
+            value: Value::String("func _spawn_scheduled_targets()".into()),
             provenance: KnowledgeProvenance {
-                source: "csharp-text".into(),
-                path: "Assets/Scripts/Managers/LevelManager.cs".into(),
+                source: "gdscript-text".into(),
+                path: "res://scripts/managers/level_manager.gd".into(),
                 line: Some(685),
                 evidence: None,
                 heuristic: Some(true),
@@ -1480,11 +1488,11 @@ mod tests {
             confidence: Some(0.85),
         });
         let coverage = test_entity(
-            "type:level-manager-spawn-tests",
-            "type",
+            "class:level-manager-spawn-tests",
+            "class",
             "LevelManagerSpawnTests",
             "first-party",
-            Some("Assets/Editor/LevelManagerSpawnTests.cs"),
+            Some("res://tests/level_manager_spawn_test.gd"),
         );
 
         let runtime = search_entities(
@@ -1508,69 +1516,69 @@ mod tests {
     fn whole_token_scoring_ignores_stopword_and_substring_noise() {
         let entities = vec![
             test_entity(
-                "type:save-system",
-                "type",
+                "class:save-system",
+                "class",
                 "SaveSystem",
                 "first-party",
-                Some("Assets/Systems/SaveSystem.cs"),
+                Some("res://systems/save_system.gd"),
             ),
             test_entity(
-                "type:vendor-save-adapter",
-                "type",
+                "class:vendor-save-adapter",
+                "class",
                 "VendorSaveAdapter",
-                "package",
-                Some("Packages/com.vendor.tools/Runtime/VendorSaveAdapter.cs"),
+                "addon",
+                Some("res://addons/vendor_tools/vendor_save_adapter.gd"),
             ),
             test_entity(
-                "type:handle-registry",
-                "type",
+                "class:handle-registry",
+                "class",
                 "HandleRegistry",
-                "package",
-                Some("Packages/com.vendor.tools/Runtime/HandleRegistry.cs"),
+                "addon",
+                Some("res://addons/vendor_tools/handle_registry.gd"),
             ),
             test_entity(
-                "type:massive-renderer",
-                "type",
+                "class:massive-renderer",
+                "class",
                 "MassiveRenderer",
                 "first-party",
-                Some("Assets/Rendering/MassiveRenderer.cs"),
+                Some("res://rendering/massive_renderer.gd"),
             ),
         ];
 
         let hits = search_entities(entities, &[], "what handles saving?", 20);
-        assert_eq!(hits[0].entity.id, "type:save-system");
+        assert_eq!(hits[0].entity.id, "class:save-system");
         assert!(hits
             .iter()
-            .any(|hit| hit.entity.id == "type:vendor-save-adapter"));
+            .any(|hit| hit.entity.id == "class:vendor-save-adapter"));
         assert!(!hits
             .iter()
-            .any(|hit| hit.entity.id == "type:handle-registry"));
+            .any(|hit| hit.entity.id == "class:handle-registry"));
         assert!(!hits
             .iter()
-            .any(|hit| hit.entity.id == "type:massive-renderer"));
+            .any(|hit| hit.entity.id == "class:massive-renderer"));
     }
 
     #[test]
-    fn explicit_package_query_prefers_the_package_scope() {
+    fn explicit_addon_query_prefers_the_addon_scope() {
         let entities = vec![
             test_entity(
                 "module:local-input",
                 "module",
-                "com.unity.inputsystem",
+                "dialogue_manager",
                 "first-party",
-                Some("Assets/com.unity.inputsystem"),
+                Some("res://dialogue_manager"),
             ),
             test_entity(
-                "package:input-system",
-                "package",
-                "com.unity.inputsystem",
-                "package",
-                Some("Packages/manifest.json"),
+                "addon:dialogue-manager",
+                "addon",
+                "dialogue_manager",
+                "addon",
+                Some("res://addons/dialogue_manager/plugin.cfg"),
             ),
         ];
 
-        let hits = search_entities(entities, &[], "package com.unity.inputsystem", 20);
-        assert_eq!(hits[0].entity.id, "package:input-system");
+        let hits = search_entities(entities, &[], "addon dialogue_manager", 20);
+        assert_eq!(hits[0].entity.id, "addon:dialogue-manager");
     }
 
     #[test]
@@ -1581,28 +1589,28 @@ mod tests {
                 "module",
                 "Combat",
                 "first-party",
-                Some("Assets/Combat"),
+                Some("res://combat"),
             ),
             test_entity(
                 "module:bosses",
                 "module",
                 "Bosses",
                 "first-party",
-                Some("Assets/Combat/Bosses"),
+                Some("res://combat/bosses"),
             ),
             test_entity(
                 "script:combat-director",
                 "script",
-                "CombatDirector.cs",
+                "combat_director.gd",
                 "first-party",
-                Some("Assets/Combat/CombatDirector.cs"),
+                Some("res://combat/combat_director.gd"),
             ),
             test_entity(
                 "script:boss-spawner",
                 "script",
-                "BossSpawner.cs",
+                "boss_spawner.gd",
                 "first-party",
-                Some("Assets/Combat/Bosses/BossSpawner.cs"),
+                Some("res://combat/bosses/boss_spawner.gd"),
             ),
         ];
         let relations = vec![
@@ -1626,7 +1634,7 @@ mod tests {
             ),
         ];
 
-        let hits = search_entities(entities, &relations, "scripts in Combat module", 20);
+        let hits = search_entities(entities, &relations, "scripts in Combat folder", 20);
         assert_eq!(
             hits.iter()
                 .map(|hit| hit.entity.id.as_str())
@@ -1637,31 +1645,26 @@ mod tests {
     }
 
     #[test]
-    fn relation_queries_follow_derivations_dependencies_and_dependents() {
+    fn relation_queries_follow_extensions_dependencies_and_dependents() {
         let entities = vec![
-            test_entity("type:mono", "type", "MonoBehaviour", "external", None),
-            test_entity("type:boss", "type", "FishBoss", "first-party", None),
-            test_entity("type:weapon", "type", "WeaponData", "first-party", None),
-            test_entity("type:view", "type", "BossView", "first-party", None),
+            test_entity("class:node2d", "class", "Node2D", "external", None),
+            test_entity("class:boss", "class", "FishBoss", "first-party", None),
+            test_entity("class:weapon", "class", "WeaponData", "first-party", None),
+            test_entity("class:view", "class", "BossView", "first-party", None),
         ];
         let relations = vec![
-            test_relation("derives:boss", "derives", "type:boss", "type:mono"),
+            test_relation("extends:boss", "extends", "class:boss", "class:node2d"),
             test_relation(
                 "references:weapon",
                 "references",
-                "type:boss",
-                "type:weapon",
+                "class:boss",
+                "class:weapon",
             ),
-            test_relation("references:boss", "references", "type:view", "type:boss"),
+            test_relation("references:boss", "references", "class:view", "class:boss"),
         ];
 
-        let derived = search_entities(
-            entities.clone(),
-            &relations,
-            "types derived from MonoBehaviour",
-            20,
-        );
-        assert_eq!(derived[0].entity.id, "type:boss");
+        let derived = search_entities(entities.clone(), &relations, "classes extending Node2D", 20);
+        assert_eq!(derived[0].entity.id, "class:boss");
 
         let dependencies =
             search_entities(entities.clone(), &relations, "FishBoss dependencies", 20);
@@ -1670,11 +1673,11 @@ mod tests {
                 .iter()
                 .map(|hit| hit.entity.id.as_str())
                 .collect::<HashSet<_>>(),
-            HashSet::from(["type:mono", "type:weapon"])
+            HashSet::from(["class:node2d", "class:weapon"])
         );
 
         let dependents = search_entities(entities, &relations, "FishBoss dependents", 20);
-        assert_eq!(dependents[0].entity.id, "type:view");
+        assert_eq!(dependents[0].entity.id, "class:view");
     }
 
     #[test]
@@ -1694,7 +1697,7 @@ mod tests {
         manifest.dirty.value = true;
         manifest.dirty.reasons.push(KnowledgeDirtyReason {
             at: now_ms(),
-            change: "Assets/PlayerController.cs changed".into(),
+            change: "res://player_controller.gd changed".into(),
         });
         std::fs::write(manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         let dirty = project_map_revision(&root).expect("dirty revision");
@@ -1726,7 +1729,7 @@ mod tests {
     #[test]
     fn missing_store_is_an_empty_state_not_a_parse_error() {
         let root = std::env::temp_dir().join(format!(
-            "unity-vibe-project-map-missing-{}",
+            "godot-vibe-project-map-missing-{}",
             nanoid::nanoid!(10)
         ));
         std::fs::create_dir_all(&root).unwrap();
@@ -1738,8 +1741,8 @@ mod tests {
     fn rejects_partial_store_instead_of_showing_false_counts() {
         let (root, _) = fixture_store();
         std::fs::write(
-            root.join(".unity-vibe")
-                .join("knowledge")
+            root.join(".godot-vibe")
+                .join("brain")
                 .join("relations.jsonl"),
             "",
         )
@@ -1767,12 +1770,12 @@ mod tests {
         let (root, _) = fixture_store();
         let path = store_path(&root, "relations.jsonl");
         let mut relations: Vec<KnowledgeRelation> = read_jsonl(&path).unwrap();
-        relations[0].to = "type:missing".into();
+        relations[0].to = "class:missing".into();
         write_records(&path, &relations);
         rewrite_manifest_integrity(&root);
 
         let error = load_project_map(&root).unwrap_err().to_string();
-        assert!(error.contains("references missing entity `type:missing`"));
+        assert!(error.contains("references missing entity `class:missing`"));
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -1,13 +1,13 @@
 [package]
-name = "unity-vibe-studio"
-version = "0.3.0"
-description = "foundry-unity — chat-first desktop app for AI-assisted Unity work"
+name = "foundry-godot"
+version = "0.1.0"
+description = "Foundry for Godot — scene-aware AI work for Godot projects"
 authors = ["Roberto Bendinelli"]
 edition = "2021"
 rust-version = "1.77"
 
 [lib]
-name = "unity_vibe_studio_lib"
+name = "foundry_godot_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -10,11 +10,11 @@ import { PrimaryButton, SecondaryButton, Spinner, StepHeading } from "./_shared"
 
 // Friendly labels for the deterministic setup sequence (onboarding.rs order).
 const KNOWN = [
-  { id: "init", label: "Setting up Unity Vibe OS" },
-  { id: "install_package", label: "Installing the Unity package" },
+  { id: "init", label: "Setting up Godot Vibe OS" },
+  { id: "install_addon", label: "Installing the Godot editor addon" },
   { id: "brain", label: "Mapping your project" },
   { id: "access", label: "Finishing AI setup" },
-  { id: "mcp_config", label: "Connecting your agent to Unity" },
+  { id: "mcp_config", label: "Connecting your agent to Godot" },
   { id: "gitignore", label: "Tidying project settings" },
   { id: "doctor", label: "Double-checking everything" },
 ] as const;
@@ -83,7 +83,7 @@ export default function SetupStep({
     (result?.steps ?? []).map((s) => [s.id, s]),
   );
   const allOk = result !== null && result.steps.every((s) => s.ok);
-  const brainReady = byId.get("brain")?.ok === true;
+  const brainReady = result?.summary?.brainReady === true;
 
   function rowState(id: string): RowState {
     const done = byId.get(id);
@@ -99,7 +99,7 @@ export default function SetupStep({
     <div>
       <StepHeading title="Prepare your project">
         We&apos;ll get <span className="text-fg">{projectName}</span> ready,
-        connect it to Unity, and check that everything works.
+        connect it to Godot, and check that everything works.
       </StepHeading>
 
       <div className="mt-6 space-y-2">
@@ -163,6 +163,7 @@ export default function SetupStep({
           Continue anyway
         </button>
       )}
+
     </div>
   );
 }

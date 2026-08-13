@@ -1,41 +1,24 @@
-import { ErrorCode, WriteTarget } from "@uvibe/core";
-import { SafetyMode, UVibeConfig } from "./config.js";
+import { ErrorCode, WriteTarget } from "@gvibe/core";
+import { GVibeConfig, SafetyMode } from "./config.js";
 
 export type { WriteTarget };
 
 /**
- * Explicit classification of write tools to the kind of state they mutate. Used to gate writes
- * by safetyMode and per-target flags. Mapping by exact tool name (NOT substring matching, which
- * mis-classified e.g. unity_save_scene vs unity_set_serialized_field).
+ * Write tools are classified by exact name rather than by a brittle substring.
  */
 export const WRITE_TOOLS: Record<string, WriteTarget> = {
-  unity_set_serialized_field: "scene",
-  unity_set_transform: "scene",
-  unity_reparent: "scene",
-  unity_add_component: "scene",
-  unity_create_gameobject: "scene",
-  unity_save_scene: "scene",
-  unity_assign_reference: "scene",
-  unity_instantiate_prefab: "scene",
-  unity_paint_tilemap: "scene",
-  unity_delete_gameobject: "scene",
-  unity_remove_component: "scene",
-  unity_delete_asset: "asset",
-  unity_create_scriptable_object: "asset",
-  unity_create_material: "asset",
-  unity_import_asset: "asset",
-  unity_slice_sprite: "asset",
-  unity_create_script: "script",
-  unity_apply_text_edits: "script",
-  unity_script_edit: "script",
-  unity_create_prefab_variant: "prefab",
-  unity_save_prefab: "prefab",
-  unity_apply_prefab_instance: "prefab",
-  unity_animator_edit_transition: "asset",
-  unity_wire_ui_button: "scene",
-  unity_clear_console: "console",
-  unity_execute_menu_item: "editor",
-  unity_execute_code: "code",
+  godot_set_property: "scene",
+  godot_create_node: "scene",
+  godot_delete_node: "scene",
+  godot_reparent_node: "scene",
+  godot_instantiate_scene: "scene",
+  godot_save_scene: "scene",
+  godot_open_scene: "editor",
+  godot_create_script: "script",
+  godot_apply_text_edits: "script",
+  godot_refresh_filesystem: "editor",
+  godot_run_project: "editor",
+  godot_stop_project: "editor",
 };
 
 export interface ToolGateDecision {
@@ -56,68 +39,66 @@ export function writeTargetOf(toolName: string): WriteTarget | undefined {
  * Gate a tool call. `target` may be supplied by the tool definition (preferred); otherwise it
  * is looked up from the WRITE_TOOLS table. Non-write tools are always allowed.
  */
-export function gateTool(config: UVibeConfig, toolName: string, target?: WriteTarget): ToolGateDecision {
+export function gateTool(config: GVibeConfig, toolName: string, target?: WriteTarget): ToolGateDecision {
   const t = target ?? writeTargetOf(toolName);
   if (!t) return { allowed: true };
   return gateWrite(config, toolName, t);
 }
 
-export function gateWrite(config: UVibeConfig, toolName: string, target: WriteTarget): ToolGateDecision {
+export function gateWrite(config: GVibeConfig, toolName: string, target: WriteTarget): ToolGateDecision {
   switch (config.safetyMode as SafetyMode) {
     case "read_only":
       return {
         allowed: false,
         errorCode: "SAFETY_MODE_BLOCKED",
-        reason: `Project access is temporarily locked, so '${toolName}' could not run. Reopen the project in foundry-unity to repair access automatically.`,
+        reason: `Project access is locked, so '${toolName}' could not run. Change .godot-vibe/config.json only if the project owner intends to allow writes.`,
       };
     case "suggest":
       return {
         allowed: false,
         errorCode: "SAFETY_MODE_BLOCKED",
-        reason: `Project access is in preview-only mode, so '${toolName}' could not change ${target} state. Reopen the project in foundry-unity to repair access automatically.`,
+        reason: `Project access is in preview-only mode, so '${toolName}' could not change ${target} state.`,
       };
     case "confirm":
+      return {
+        allowed: false,
+        errorCode: "SAFETY_MODE_BLOCKED",
+        reason: `Confirmation mode blocked '${toolName}' because this MCP session has no trusted approval signal. The project owner must explicitly choose a write-enabled mode before unattended changes can run.`,
+      };
     case "autopilot": {
       if (target === "scene" && !config.allowSceneWrites) {
         return {
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
-          reason: `Scene writes are disabled (allowSceneWrites=false in .unity-vibe/config.json).`,
+          reason: `Scene writes are disabled (allowSceneWrites=false in .godot-vibe/config.json).`,
         };
       }
-      if (target === "prefab" && !config.allowPrefabWrites) {
+      if (target === "resource" && !config.allowResourceWrites) {
         return {
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
-          reason: `Prefab writes are disabled (allowPrefabWrites=false in .unity-vibe/config.json).`,
+          reason: `Resource writes are disabled (allowResourceWrites=false in .godot-vibe/config.json).`,
         };
       }
       if (target === "script" && !config.allowScriptWrites) {
         return {
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
-          reason: `Script writes are disabled (allowScriptWrites=false in .unity-vibe/config.json).`,
+          reason: `Script writes are disabled (allowScriptWrites=false in .godot-vibe/config.json).`,
         };
       }
-      if (target === "asset" && !config.allowAssetWrites) {
+      if (target === "project_settings" && !config.allowProjectSettingsWrites) {
         return {
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
-          reason: `Asset writes are disabled (allowAssetWrites=false in .unity-vibe/config.json).`,
+          reason: `Project settings writes are disabled (allowProjectSettingsWrites=false in .godot-vibe/config.json).`,
         };
       }
-      if (target === "editor" && !config.allowMenuItems) {
+      if (target === "editor" && !config.allowEditorControl) {
         return {
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
-          reason: "Editor commands are temporarily unavailable. Reopen the project in foundry-unity to repair access automatically.",
-        };
-      }
-      if (target === "code" && !config.allowCodeExecution) {
-        return {
-          allowed: false,
-          errorCode: "SAFETY_MODE_BLOCKED",
-          reason: "In-Editor automation is temporarily unavailable. Reopen the project in foundry-unity to repair access automatically.",
+          reason: "Editor control is disabled (allowEditorControl=false in .godot-vibe/config.json).",
         };
       }
       return { allowed: true };

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    unity_vibe_studio_lib::run();
+    foundry_godot_lib::run();
 }

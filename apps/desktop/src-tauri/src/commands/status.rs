@@ -5,7 +5,7 @@ use crate::state::AppState;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, State};
 
-/// Start (or restart) the 2s Unity bridge status poller for `project`. Emits
+/// Start (or restart) the 2s Godot bridge status poller for `project`. Emits
 /// `status:update` events. Also (re)grants the project's inbox dir to the asset
 /// protocol so pasted/dropped image thumbnails render — machine-specific, so
 /// granted at runtime like the captures dir in lib.rs (this is the "project set
@@ -21,10 +21,10 @@ pub async fn status_start(
     Ok(())
 }
 
-/// Create `<project>/.unity-vibe/inbox` and allow the webview to render files
+/// Create `<project>/.godot-vibe/inbox` and allow the webview to render files
 /// under it via `convertFileSrc`. Best-effort: log and continue on failure.
 fn grant_inbox_scope(app: &AppHandle, project: &Path) {
-    let inbox = project.join(".unity-vibe").join("inbox");
+    let inbox = project.join(".godot-vibe").join("inbox");
     if let Err(e) = std::fs::create_dir_all(&inbox) {
         log::warn!("could not create inbox dir: {e}");
         return;

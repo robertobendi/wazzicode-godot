@@ -4,7 +4,7 @@
 //! Two backends are supported and are interchangeable everywhere in the app
 //! (chat, auto-loop, quick actions): Anthropic's **Claude Code** (`claude -p`)
 //! and OpenAI's **Codex CLI** (`codex exec`). Both are headless, both stream
-//! newline-delimited JSON, and both drive the same `unity-vibe-os` MCP server —
+//! newline-delimited JSON, and both drive the same `godot-vibe-os` MCP server —
 //! so a single spawn core serves both, and only the argv and the event
 //! vocabulary differ. See [`backend::Backend`].
 

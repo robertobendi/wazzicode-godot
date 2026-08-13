@@ -1,78 +1,11 @@
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-
-/**
- * MCP prompts. Claude Code surfaces each of these as a slash command
- * (/mcp__unity-vibe-os__<name>) the user can trigger to kick off a Unity workflow. They expand to a
- * user message that drives the unity_* tools — packaging the canonical loops from CLAUDE.md so the
- * user doesn't have to remember which tools to chain. (Other MCP clients ignore prompts, which is
- * why CoplayDev — being client-agnostic — doesn't ship them; for a Claude-Code-only tool they're
- * free UX.)
- */
-export interface UnityPrompt {
-  name: string;
-  config: { title: string; description: string; argsSchema?: Record<string, z.ZodType> };
-  build: (args: Record<string, string>) => string;
-}
-
-export const UNITY_PROMPTS: UnityPrompt[] = [
-  {
-    name: "orient",
-    config: { title: "Orient in the Unity project", description: "Summarize the current Unity project state in one pass." },
-    build: () =>
-      "Call `unity_orient` and give me a concise status of the Unity project: open scenes and which is active, the current selection, compile status (with any errors), recent warnings/errors, git status, and how stale the project brain is. Flag anything that looks broken.",
-  },
-  {
-    name: "diagnose_scene",
-    config: { title: "Diagnose a broken scene/prefab", description: "Find missing scripts and dangling references and explain how to fix them." },
-    build: () =>
-      "Diagnose why the current scene/prefab might be broken. Run `unity_find_missing_scripts` and `unity_find_missing_references`, then summarize each missing script and dangling reference (object path, component, field) and the most likely fix. Use `unity_find_references`/`unity_find_dependencies` to trace anything before suggesting a rename or delete. Don't change anything yet — just report.",
-  },
-  {
-    name: "analyze_scene",
-    config: { title: "Analyze the current scene", description: "Review the scene for issues and optimization opportunities." },
-    build: () =>
-      "Analyze the current Unity scene and report issues + optimization opportunities. Inspect structure with `unity_get_scene_hierarchy`; find broken links with `unity_find_missing_scripts` and `unity_find_missing_references`; for performance, read `unity_get_performance_stats` (enter play mode first if needed — draw calls, batches, GC alloc, FPS). Then give a prioritized report: structural problems, missing/dangling references, and performance concerns, each with a concrete fix ranked by impact. Don't change anything yet — propose, and ask before applying.",
-  },
-  {
-    name: "verify",
-    config: { title: "Verify the latest changes", description: "Run the compile → console → tests verdict." },
-    build: () =>
-      "Run `unity_verify` and report a single pass/fail verdict: whether it compiled, any new console errors, and the test results (name + status for failures). If it failed, point at the specific file/line and propose the fix.",
-  },
-  {
-    name: "new_script",
-    config: {
-      title: "Create a new C# script",
-      description: "Scaffold a verified C# script with API checks.",
-      argsSchema: { name: z.string().describe("Class/file name, e.g. EnemyController"), description: z.string().describe("What the script should do") },
-    },
-    build: (a) =>
-      `Create a new C# script named "${a.name || "NewBehaviour"}" that does the following: ${a.description || "(describe the behaviour)"}.\n` +
-      "Before writing, use `unity_reflect` to confirm any Unity/package APIs you rely on actually exist with the signatures you expect. Then `unity_create_script` under an appropriate Assets/ path, and finish with `unity_verify` to confirm it compiles and tests pass. If anything fails to compile, fix it and re-verify.",
-  },
-  {
-    name: "play_test",
-    config: { title: "Play-test the game", description: "Run a guarded runtime smoke test with automatic cleanup." },
-    build: () =>
-      "Run `unity_smoke_test` on the current scene and report its pass/fail checks, new runtime errors, performance sample, screenshot path, and cleanup result. If it exposes a problem, investigate in play mode with `unity_find_runtime_objects`/`unity_inspect_runtime_object`, `unity_configure_play_mode`, `unity_set_runtime_field`, `unity_simulate_input`, or `unity_step_frame`, then leave the Editor in its original play state.",
-  },
-  {
-    name: "qa",
-    config: { title: "Run the full Unity QA gate", description: "Compile, test, scan assets/build settings, and smoke-test runtime." },
-    build: () =>
-      "Run `unity_qa` with its default full gate. Report one pass/fail verdict followed by only actionable failures: compile or console errors, failed/inconclusive tests, missing scripts or references, build-settings issues, smoke-test runtime errors, performance budget failures, and cleanup failures.",
-  },
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+export interface GodotPrompt { name: string; config: { title: string; description: string; argsSchema?: Record<string, z.ZodType> }; build: (args: Record<string, string>) => string }
+export const GODOT_PROMPTS: GodotPrompt[] = [
+  { name: "orient", config: { title: "Orient in the Godot project", description: "Read live editor and project-map state in one pass." }, build: () => "Call `godot_orient` and summarize only actionable project, scene, selection, import, play, git, and project-map state." },
+  { name: "analyze_scene", config: { title: "Analyze the edited scene", description: "Inspect node structure, dependencies, ownership, and visuals." }, build: () => "Inspect the edited scene with `godot_get_scene_tree`, the current selection, relevant resource dependencies, and the matching 2D or 3D capture. Report prioritized structural, ownership, dependency, and visual issues without changing anything." },
+  { name: "verify", config: { title: "Verify changes", description: "Run real Godot import and GDScript syntax gates." }, build: () => "Run `godot_verify`. Report one pass/fail verdict, exact import or script failures, and state clearly that tests are not configured if that is what the result says." },
+  { name: "new_script", config: { title: "Create verified GDScript", description: "Reflect APIs, write a script, import, and verify.", argsSchema: { name: z.string(), description: z.string() } }, build: (args) => `Create ${args.name || "a new GDScript"}: ${args.description || "(behavior)"}. Query relevant APIs with godot_reflect, create it under a suitable res:// path, refresh the filesystem, then run godot_verify and fix any failure.` },
+  { name: "play", config: { title: "Run the project", description: "Run the correct scene and inspect editor play state." }, build: () => "Inspect open scenes, run the appropriate current or main scene with `godot_run_project`, confirm `godot_get_play_status`, and report what was actually launched. Stop it when the task requires cleanup." },
 ];
-
-export function registerPrompts(server: McpServer): void {
-  for (const p of UNITY_PROMPTS) {
-    server.registerPrompt(
-      p.name,
-      p.config as { title: string; description: string; argsSchema?: Record<string, z.ZodType> & Record<string, z.ZodTypeAny> },
-      ((args: Record<string, string> = {}) => ({
-        messages: [{ role: "user" as const, content: { type: "text" as const, text: p.build(args) } }],
-      })) as never
-    );
-  }
-}
+export function registerPrompts(server: McpServer): void { for (const prompt of GODOT_PROMPTS) server.registerPrompt(prompt.name, prompt.config as never, ((args: Record<string, string> = {}) => ({ messages: [{ role: "user" as const, content: { type: "text" as const, text: prompt.build(args) } }] })) as never); }

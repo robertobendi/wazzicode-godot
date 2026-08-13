@@ -1,6 +1,6 @@
 {
-  "name": "@uvibe/core",
-  "version": "0.5.2",
+  "name": "@gvibe/core",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

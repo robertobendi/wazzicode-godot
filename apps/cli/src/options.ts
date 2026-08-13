@@ -48,8 +48,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 export function asGlobal(parsed: ParsedArgs): GlobalOptions {
   return {
-    project: typeof parsed.flags.project === "string" ? parsed.flags.project : process.env.UVIBE_PROJECT ?? process.cwd(),
-    mock: parsed.flags.mock === true || parsed.flags.mock === "true" || process.env.UVIBE_MOCK === "1",
+    project: typeof parsed.flags.project === "string" ? parsed.flags.project : process.env.GVIBE_PROJECT ?? process.cwd(),
+    mock: parsed.flags.mock === true || parsed.flags.mock === "true" || process.env.GVIBE_MOCK === "1",
     json: parsed.flags.json === true || parsed.flags.json === "true",
   };
 }

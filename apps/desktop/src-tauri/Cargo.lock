@@ -1348,6 +1348,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "foundry-godot"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "base64 0.22.1",
+ "chrono",
+ "clipboard-files",
+ "dirs 5.0.1",
+ "dunce",
+ "keyring",
+ "libc",
+ "log",
+ "nanoid",
+ "png 0.17.16",
+ "portable-pty",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-opener",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5243,36 +5273,6 @@ name = "unicode-segmentation"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
-
-[[package]]
-name = "unity-vibe-studio"
-version = "0.3.0"
-dependencies = [
- "arboard",
- "base64 0.22.1",
- "chrono",
- "clipboard-files",
- "dirs 5.0.1",
- "dunce",
- "keyring",
- "libc",
- "log",
- "nanoid",
- "png 0.17.16",
- "portable-pty",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-opener",
- "thiserror 1.0.69",
- "tokio",
-]
 
 [[package]]
 name = "untrusted"

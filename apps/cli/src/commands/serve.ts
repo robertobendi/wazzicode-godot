@@ -1,11 +1,11 @@
-import { startMcpServer } from "@uvibe/mcp-server";
+import { startMcpServer } from "@gvibe/mcp-server";
 import { CommandResult, GlobalOptions } from "../options.js";
 
 export async function runServe(g: GlobalOptions): Promise<CommandResult> {
   // Stdio is grabbed by the MCP server. Anything printed to stdout would corrupt the JSON-RPC stream,
   // so log to stderr only.
   process.stderr.write(
-    `Unity Vibe OS MCP server starting (project=${g.project}, mock=${g.mock})\n`
+    `Godot Vibe OS MCP server starting (project=${g.project}, mock=${g.mock})\n`
   );
   await startMcpServer({ mock: g.mock, projectPath: g.project });
   // The SDK's stdio transport keeps the event loop alive via its data listener.

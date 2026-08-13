@@ -85,7 +85,7 @@ function Thumbnail({ path, index }: { path: string | null; index: number }) {
   return (
     <img
       src={src}
-      alt={`Step ${index + 1} game view`}
+      alt={`Step ${index + 1} Godot viewport`}
       className="aspect-video w-full rounded-lg border border-ink-700 object-cover"
     />
   );

@@ -1,6 +1,6 @@
 {
-  "name": "@uvibe/project-brain",
-  "version": "0.5.2",
+  "name": "@gvibe/project-brain",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -19,8 +19,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@uvibe/core": "workspace:*",
-    "@uvibe/safety": "workspace:*",
-    "zod": "^3.23.8"
+    "@gvibe/safety": "workspace:*"
   }
 }

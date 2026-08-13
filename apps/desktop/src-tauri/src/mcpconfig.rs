@@ -1,8 +1,8 @@
-//! App-managed MCP server wiring + uvibe CLI resolution.
+//! App-managed Godot MCP server wiring and `gvibe` CLI resolution.
 //!
 //! Mirrors `apps/cli/src/commands/mcpConfig.ts:buildEntry`: the entry runs the
-//! uvibe CLI's `serve` command via Node with `UVIBE_PROJECT` pointing at the
-//! Unity project, so a headless agent run gets the `unity-vibe-os` MCP server
+//! CLI's `serve` command via Node with `GVIBE_PROJECT` pointing at the
+//! Godot project, so a headless agent run gets the `godot-vibe-os` MCP server
 //! without touching the game repo's own `.mcp.json`.
 //!
 //! The two backends consume that entry differently:
@@ -20,19 +20,19 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Manager};
 
-/// The `unity-vibe-os` MCP server as a backend-neutral triple. Rendered to JSON
+/// The `godot-vibe-os` MCP server as a backend-neutral triple. Rendered to JSON
 /// for Claude ([`ensure_mcp_config`]) or to TOML `-c` overrides for Codex.
 #[derive(Debug, Clone)]
 pub struct McpEntry {
     pub command: String,
     pub args: Vec<String>,
-    /// Value for the server's `UVIBE_PROJECT` env var — the Unity project path.
+    /// Value for the server's `GVIBE_PROJECT` environment variable.
     pub project: String,
 }
 
-/// Resolve the uvibe CLI and describe the MCP server entry for `project`.
+/// Resolve the `gvibe` CLI and describe the MCP server entry for `project`.
 pub fn mcp_entry(app: &AppHandle, project: &Path) -> McpEntry {
-    let (command, mut args) = resolve_uvibe(app);
+    let (command, mut args) = resolve_gvibe(app);
     args.push("serve".into());
     McpEntry {
         command,
@@ -43,8 +43,7 @@ pub fn mcp_entry(app: &AppHandle, project: &Path) -> McpEntry {
 
 /// Write `<config_dir>/mcp/<projectHash>.json` (Claude's `--mcp-config`) and
 /// return its path. `config_dir` is the app's config dir (already
-/// `.../unity-vibe-studio`). `app` is needed to resolve the bundled sidecar +
-/// uvibe.cjs in release builds.
+/// `.../foundry-godot`). `app` resolves the bundled sidecar and CLI bundle.
 pub fn ensure_mcp_config(app: &AppHandle, config_dir: &Path, project: &Path) -> AppResult<PathBuf> {
     let dir = config_dir.join("mcp");
     std::fs::create_dir_all(&dir)?;
@@ -53,10 +52,10 @@ pub fn ensure_mcp_config(app: &AppHandle, config_dir: &Path, project: &Path) -> 
     let entry = mcp_entry(app, project);
     let config = serde_json::json!({
         "mcpServers": {
-            "unity-vibe-os": {
+            "godot-vibe-os": {
                 "command": entry.command,
                 "args": entry.args,
-                "env": { "UVIBE_PROJECT": entry.project }
+                "env": { "GVIBE_PROJECT": entry.project }
             }
         }
     });
@@ -77,32 +76,32 @@ pub fn project_hash(project: &Path) -> String {
     hex
 }
 
-/// Resolve how to invoke the uvibe CLI, as `(command, prefix_args)` — everything
+/// Resolve how to invoke the `gvibe` CLI, as `(command, prefix_args)` — everything
 /// before the subcommand. Callers append the subcommand + its flags (e.g.
 /// `"serve"`, or `["init", "--project", …]`).
 ///
 // B6: prefer the bundled sidecar — a Node 20 `externalBin` plus the esbuild-
-// bundled `uvibe.cjs` shipped as a Tauri resource, version-locking the MCP
+// bundled `gvibe.cjs` shipped as a Tauri resource, version-locking the MCP
 // server to the app release. Fall back to the monorepo CLI (dev builds) via the
-// system `node`, then to `uvibe` on PATH.
-pub fn resolve_uvibe(app: &AppHandle) -> (String, Vec<String>) {
-    if let Some(entry) = bundled_uvibe(app) {
+// system `node`, then to `gvibe` on PATH.
+pub fn resolve_gvibe(app: &AppHandle) -> (String, Vec<String>) {
+    if let Some(entry) = bundled_gvibe(app) {
         return entry;
     }
-    if let Some(entry) = dev_uvibe_base() {
+    if let Some(entry) = dev_gvibe_base() {
         return entry;
     }
-    log::warn!("uvibe CLI not found (no bundled sidecar, not in monorepo); falling back to `uvibe` on PATH");
-    ("uvibe".into(), Vec::new())
+    log::warn!("gvibe CLI not found (no bundled sidecar, not in monorepo); falling back to `gvibe` on PATH");
+    ("gvibe".into(), Vec::new())
 }
 
-/// Build a subprocess for a previously resolved uvibe command/prefix.
+/// Build a subprocess for a previously resolved gvibe command/prefix.
 ///
 /// Resolution stays on the Tauri thread because it may use app resources;
 /// callers can then move the returned command into a blocking worker. Absolute
 /// bundled/dev commands and the PATH fallback receive the same augmented PATH
 /// and non-interactive stdin behavior as the rest of Studio's subprocesses.
-pub fn resolved_uvibe_command(
+pub fn resolved_gvibe_command(
     command: &str,
     prefix: &[String],
     args: &[String],
@@ -120,35 +119,34 @@ pub fn resolved_uvibe_command(
     Ok(cmd)
 }
 
-/// Source folder of the `UnityVibeOS` UPM package to install into a project:
-/// the bundled Tauri resource in release, or the monorepo `unity/UnityVibeOS`
-/// in dev. `None` if neither is present.
-pub fn unity_package_source(app: &AppHandle) -> Option<PathBuf> {
+/// Source folder of the Godot editor addon bundled with this checkout/app.
+pub fn godot_addon_source(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(res) = app.path().resource_dir() {
-        let bundled = res.join("resources").join("UnityVibeOS");
-        if bundled.join("package.json").is_file() {
+        let bundled = res.join("resources").join("godot_vibe_os");
+        if bundled.join("plugin.cfg").is_file() {
             return Some(bundled);
         }
     }
-    dev_repo_path(&["unity", "UnityVibeOS"]).filter(|p| p.join("package.json").is_file())
+    dev_repo_path(&["godot", "addons", "godot_vibe_os"])
+        .filter(|path| path.join("plugin.cfg").is_file())
 }
 
-/// True when both bundled pieces (sidecar node + uvibe.cjs) are present — i.e.
+/// True when both bundled pieces (sidecar node + gvibe.cjs) are present — i.e.
 /// this is a packaged build, not `tauri dev`. Surfaced in onboarding status.
 pub fn has_bundled_sidecar(app: &AppHandle) -> bool {
-    bundled_uvibe(app).is_some()
+    bundled_gvibe(app).is_some()
 }
 
 /// Release resolution: the `node` sidecar (bundled next to the app binary by
-/// Tauri's `externalBin`, target-triple suffix stripped) + `resources/uvibe.cjs`.
+/// Tauri's `externalBin`, target-triple suffix stripped) + `resources/gvibe.cjs`.
 /// Both must exist or we return `None` so callers fall through to dev/PATH.
-fn bundled_uvibe(app: &AppHandle) -> Option<(String, Vec<String>)> {
+fn bundled_gvibe(app: &AppHandle) -> Option<(String, Vec<String>)> {
     let exe = std::env::current_exe().ok()?;
     let bin_dir = exe.parent()?;
     let node = bin_dir.join(if cfg!(windows) { "node.exe" } else { "node" });
 
     let res = app.path().resource_dir().ok()?;
-    let cjs = res.join("resources").join("uvibe.cjs");
+    let cjs = res.join("resources").join("gvibe.cjs");
 
     if node.is_file() && cjs.is_file() {
         return Some((
@@ -159,14 +157,13 @@ fn bundled_uvibe(app: &AppHandle) -> Option<(String, Vec<String>)> {
     None
 }
 
-/// Dev resolution: the monorepo CLI (`apps/cli/bin/uvibe`) run via the system
-/// `node`. Returns `(node, [uvibe])`. Tries walking up from the running exe
+/// Dev resolution: the monorepo CLI (`apps/cli/bin/gvibe`) run via system Node.
 /// (covers `tauri dev`, binary under `target/`), then the compile-time manifest
 /// dir.
-fn dev_uvibe_base() -> Option<(String, Vec<String>)> {
+fn dev_gvibe_base() -> Option<(String, Vec<String>)> {
     let node = crate::proc::resolve("node")?.to_string_lossy().into_owned();
-    let uvibe = dev_repo_path(&["apps", "cli", "bin", "uvibe"]).filter(|p| p.is_file())?;
-    Some((node, vec![uvibe.to_string_lossy().into_owned()]))
+    let gvibe = dev_repo_path(&["apps", "cli", "bin", "gvibe"]).filter(|p| p.is_file())?;
+    Some((node, vec![gvibe.to_string_lossy().into_owned()]))
 }
 
 /// Locate a path under the monorepo root for dev builds. Walks up from the
@@ -222,11 +219,11 @@ mod tests {
     #[test]
     fn dev_repo_path_finds_monorepo_cli() {
         // The manifest-dir fallback should locate the CLI shim in this checkout.
-        let uvibe = dev_repo_path(&["apps", "cli", "bin", "uvibe"]);
+        let gvibe = dev_repo_path(&["apps", "cli", "bin", "gvibe"]);
         assert!(
-            uvibe.is_some(),
-            "expected to find apps/cli/bin/uvibe in the monorepo"
+            gvibe.is_some(),
+            "expected to find apps/cli/bin/gvibe in the monorepo"
         );
-        assert!(uvibe.unwrap().is_file());
+        assert!(gvibe.unwrap().is_file());
     }
 }

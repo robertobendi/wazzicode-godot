@@ -345,7 +345,7 @@ fn noop_askpass() -> Option<PathBuf> {
             // invokes a `.cmd` via cmd.exe under the hood — no need for a
             // real .exe. The script ignores the prompt-text arg git passes
             // and just exits 0, which git interprets as "user cancelled".
-            let dir = dirs::data_local_dir()?.join("Unity Vibe Studio");
+            let dir = dirs::data_local_dir()?.join("Foundry for Godot");
             std::fs::create_dir_all(&dir).ok()?;
             let path = dir.join("noop_askpass.cmd");
             // Rewrite every run is cheap and self-heals a corrupted file.

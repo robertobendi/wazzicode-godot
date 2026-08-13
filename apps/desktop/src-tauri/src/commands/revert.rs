@@ -5,7 +5,7 @@
 //! AI touched it) and stashes it in [`AppState::checkpoints`]. `revert_last`
 //! rolls the project back to that checkpoint: `git reset --hard <sha>` plus a
 //! `git clean -fd` that removes AI-created untracked files while preserving the
-//! studio's own state dir (`.unity-vibe/`).
+//! studio's own state dir (`.godot-vibe/`).
 //!
 //! It refuses to run while a chat or auto-loop is active for the project (you
 //! can't rewind under a live edit), and clears the checkpoint once reverted so
@@ -55,7 +55,7 @@ pub async fn revert_last(project: String, state: State<'_, AppState>) -> AppResu
         crate::gitutil::reset_hard(&reset_project, &sha)?;
         // Remove untracked files the AI created, but never the studio's own
         // state dir (sessions, inbox, loop scratch, config).
-        crate::gitutil::clean(&reset_project, &[".unity-vibe/"])
+        crate::gitutil::clean(&reset_project, &[".godot-vibe/"])
     })
     .await
     .map_err(|e| AppError::Other(format!("revert task failed: {e}")))?

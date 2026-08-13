@@ -29,8 +29,8 @@ import { isCodexEvent, reduceCodex } from "./codexStream";
 import { toolLabel } from "./toolLabels";
 import {
   boundMcpResultText,
-  isUnityDiagnosticActivity,
-} from "./unityDiagnostics";
+  isGodotDiagnosticActivity,
+} from "./godotDiagnostics";
 
 export interface StreamDraft {
   /** Accumulated assistant visible text. */
@@ -40,8 +40,8 @@ export interface StreamDraft {
   /** Tool names advertised in the system/init event (Claude only — Codex doesn't
    *  announce its toolset up front). */
   toolsSeen: string[];
-  /** True when the MCP Unity tools are actually available this run. */
-  hasUnityTools: boolean;
+  /** True when the Godot Vibe OS MCP tools are available this run. */
+  hasGodotTools: boolean;
   /** Final turn cost in USD. Claude only: Codex reports tokens, not dollars, so
    *  this stays undefined there — which is the signal NOT to render "$0.00". */
   cost?: number;
@@ -56,7 +56,7 @@ export function initialDraft(): StreamDraft {
     text: "",
     activities: [],
     toolsSeen: [],
-    hasUnityTools: false,
+    hasGodotTools: false,
     isError: false,
     done: false,
   };
@@ -90,12 +90,12 @@ export function reduceStream(draft: StreamDraft, raw: unknown): StreamDraft {
 
 function applyInit(draft: StreamDraft, v: Raw): StreamDraft {
   const tools: string[] = Array.isArray(v.tools) ? v.tools : [];
-  const hasUnityTools = tools.some((t) => t.startsWith("mcp__unity-vibe-os"));
+  const hasGodotTools = tools.some((t) => t.startsWith("mcp__godot-vibe-os"));
   return {
     ...draft,
     sessionId: typeof v.session_id === "string" ? v.session_id : draft.sessionId,
     toolsSeen: tools,
-    hasUnityTools,
+    hasGodotTools,
   };
 }
 
@@ -152,7 +152,7 @@ function applyUser(draft: StreamDraft, v: Raw): StreamDraft {
       ...activity,
       status: block.is_error ? "error" : "ok",
       resultText: extractResultText(block.content),
-      ...(isUnityDiagnosticActivity(activity.name)
+      ...(isGodotDiagnosticActivity(activity.name)
         ? boundMcpResultText(extractRawResultText(block.content))
         : {}),
       endedAt: Date.now(),

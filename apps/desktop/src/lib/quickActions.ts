@@ -2,7 +2,7 @@
 //
 // These built-in defaults are the source of truth for the UI's instant,
 // offline render; a project can override them with a
-// `.unity-vibe/quick_actions.json` file, read by the `read_quick_actions`
+// `.godot-vibe/quick_actions.json` file, read by the `read_quick_actions`
 // Rust command (whose defaults mirror the ones below).
 
 export interface QuickAction {
@@ -13,19 +13,19 @@ export interface QuickAction {
 /** The built-in starter prompts. Kept in sync with commands/quick_actions.rs. */
 export const DEFAULT_QUICK_ACTIONS: QuickAction[] = [
   {
-    label: "Fix whatever's broken",
+    label: "Verify the project",
     prompt:
-      "Run unity_qa, fix every actionable failure it finds, then rerun the full gate until it passes.",
+      "Run godot_verify, fix every import or GDScript failure it finds, and rerun it until it passes. If tests are not configured, say so plainly instead of claiming they ran.",
   },
   {
-    label: "Screenshot tour",
+    label: "Map the active scene",
     prompt:
-      "Open each scene in the project, capture a game-view screenshot of each, and summarize what's in them.",
+      "Inspect the open scenes and active scene tree, then explain the important node branches, attached scripts, and resource dependencies.",
   },
   {
-    label: "Tidy the scene",
+    label: "Improve what I selected",
     prompt:
-      "Look at the current scene hierarchy and tidy it: group loose objects under sensible parents, fix obvious naming, and report what you changed.",
+      "Inspect the selected Godot node and the relevant 2D or 3D viewport. Improve the selection for clarity and maintainability, preserve intentional behavior, save the scene, and show what changed.",
   },
 ];
 

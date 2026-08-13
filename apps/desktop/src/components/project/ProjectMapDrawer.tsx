@@ -54,15 +54,16 @@ const FACETS: Array<{ id: ProjectMapFacet; label: string }> = [
   { id: "all", label: "Overview" },
   { id: "module", label: "Folders" },
   { id: "scene", label: "Scenes" },
-  { id: "prefab", label: "Prefabs" },
+  { id: "resource", label: "Resources" },
   { id: "script", label: "Scripts" },
-  { id: "type", label: "Types" },
-  { id: "package", label: "Packages" },
+  { id: "class", label: "Classes" },
+  { id: "shader", label: "Shaders" },
+  { id: "addon", label: "Addons" },
 ];
 
 const SEARCH_EXAMPLES = [
   "what handles saving?",
-  "types derived from MonoBehaviour",
+  "classes that extend CharacterBody2D",
   "what handles player input?",
 ];
 
@@ -219,7 +220,7 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
         index: nextId ? 0 : -1,
       });
       const scriptsRoot = next?.entities.find(
-        (entity) => entity.kind === "module" && entity.path === "Assets/Scripts",
+        (entity) => entity.kind === "module" && entity.path === "res://scripts",
       );
       const nextExpanded = new Set(scriptsRoot ? [scriptsRoot.id] : []);
       if (next && nextId) {
@@ -1170,7 +1171,7 @@ function StructureBrowse({
     null;
   const rootChildren = root ? projectMapChildren(data, root.id) : [];
   const modules = rootChildren.filter(
-    (entity) => entity.kind === "module" && entity.scope !== "package",
+    (entity) => entity.kind === "module" && entity.scope !== "addon",
   );
 
   return (
@@ -1217,9 +1218,9 @@ function StructureBrowse({
         {(
           [
             ["scene", "Scenes"],
-            ["prefab", "Prefabs"],
+            ["resource", "Resources"],
             ["script", "Scripts"],
-            ["package", "Packages"],
+            ["shader", "Shaders"],
           ] as Array<[ProjectMapFacet, string]>
         ).map(([kind, label]) => (
           <button
@@ -1508,7 +1509,7 @@ function EntityInspector({
                 {formatKnowledgeKind(entity.kind)}
               </span>
               {entity.scope !== "project" &&
-                !(entity.kind === "package" && entity.scope === "package") && (
+                !(entity.kind === "addon" && entity.scope === "addon") && (
                   <span className="rounded-md border border-ink-700 px-2 py-1 text-[9px] uppercase tracking-[0.1em] text-fg-dim">
                     {scopeLabel(entity.scope)}
                   </span>
@@ -1827,8 +1828,10 @@ function relationshipGroups(
     ["inbound", "declares"],
     ["outbound", "contains"],
     ["outbound", "declares"],
-    ["outbound", "derives"],
-    ["inbound", "derives"],
+    ["outbound", "extends"],
+    ["inbound", "extends"],
+    ["outbound", "instantiates"],
+    ["inbound", "instantiates"],
     ["outbound", "references"],
     ["inbound", "references"],
   ];
@@ -1920,18 +1923,24 @@ function RelationGroup({
 
 function EntityDetails({ entity }: { entity: KnowledgeEntity }) {
   const groups = groupProjectMapFacts(entity.facts);
-  const members = groups.find((group) => group.key === "memberSignature");
+  const memberGroups = groups.filter((group) =>
+    ["function", "signal", "export"].includes(group.key),
+  );
+  const members = memberGroups.flatMap((group) =>
+    group.facts.map((fact) => ({ kind: group.key, fact })),
+  );
   const details = groups.filter(
     (group) =>
-      !["memberSignature", "path", "directory"].includes(group.key) &&
-      !(group.key === "memberSignatureCount" && members),
+      !["function", "signal", "export", "path", "directory"].includes(
+        group.key,
+      ),
   );
   const sources = factSources(entity.facts);
 
   return (
     <section className="mt-7" aria-labelledby="project-details-title">
       <SectionHeading id="project-details-title">Details</SectionHeading>
-      {details.length === 0 && !members ? (
+      {details.length === 0 && members.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed border-ink-700 p-4 text-xs leading-relaxed text-fg-dim">
           No structured details were recorded for this item.
         </p>
@@ -1968,19 +1977,27 @@ function EntityDetails({ entity }: { entity: KnowledgeEntity }) {
         </div>
       )}
 
-      {members && (
+      {members.length > 0 && (
         <details className="group mt-3 overflow-hidden rounded-xl border border-ink-700 bg-white">
           <summary className="flex cursor-pointer list-none items-center gap-2 bg-ink-850 px-4 py-3 text-xs font-medium text-fg marker:hidden">
             Members
             <span className="rounded bg-white px-1.5 py-0.5 text-[9px] tabular-nums text-fg-dim">
-              {members.facts.length}
+              {members.length}
             </span>
             <ChevronIcon className="ml-auto h-3.5 w-3.5 text-fg-dim transition-transform group-open:rotate-180" />
           </summary>
           <ul className="selectable max-h-80 divide-y divide-ink-700 overflow-y-auto font-mono text-[10px] leading-relaxed text-fg-muted">
-            {members.facts.map((fact, index) => (
-              <li key={`${fact.provenance.line ?? index}:${index}`} className="px-4 py-2">
-                {formatKnowledgeFactValue(fact.value)}
+            {members.map(({ kind, fact }, index) => (
+              <li
+                key={`${kind}:${fact.provenance.line ?? index}:${index}`}
+                className="flex gap-3 px-4 py-2"
+              >
+                <span className="w-12 shrink-0 font-sans text-[9px] uppercase tracking-[0.08em] text-fg-dim">
+                  {factLabel(kind)}
+                </span>
+                <span className="min-w-0 break-words">
+                  {formatKnowledgeFactValue(fact.value)}
+                </span>
               </li>
             ))}
           </ul>
@@ -2057,12 +2074,13 @@ function KindGlyph({
 }) {
   const glyph: Record<KnowledgeEntity["kind"], string> = {
     project: "◆",
-    package: "▣",
+    addon: "▣",
     scene: "◫",
-    prefab: "◇",
+    resource: "◇",
     script: "⌘",
-    type: "T",
+    class: "C",
     module: "▦",
+    shader: "∿",
   };
   return (
     <span
@@ -2160,7 +2178,7 @@ function EmptyState({
         </span>
         <h3 className="mt-4 text-sm font-medium text-fg">Build a project map</h3>
         <p className="mt-2 text-xs leading-relaxed text-fg-dim">
-          Index the project&apos;s code, scenes, prefabs, packages, and dependencies.
+          Index GDScript, scenes, resources, shaders, addons, and dependencies.
         </p>
         <button
           type="button"
@@ -2180,10 +2198,11 @@ function pluralKind(kind: KnowledgeEntityKind): string {
     project: "Project",
     module: "Folders",
     scene: "Scenes",
-    prefab: "Prefabs",
-    script: "C# scripts",
-    type: "Types",
-    package: "Packages",
+    resource: "Resources",
+    script: "Scripts",
+    class: "Classes",
+    shader: "Shaders",
+    addon: "Addons",
   };
   return labels[kind];
 }
@@ -2191,27 +2210,25 @@ function pluralKind(kind: KnowledgeEntityKind): string {
 function factLabel(value: string): string {
   const labels: Record<string, string> = {
     assetType: "Asset type",
-    baseTypes: "Inherits or implements",
-    bundleIdentifier: "Bundle identifier",
-    companyName: "Company",
-    declarationKind: "Declaration",
-    declaredTypeCount: "Declared types",
-    inputSystem: "Input system",
-    isUnityProject: "Unity project",
+    autoloads: "Autoloads",
+    baseClass: "Extends",
+    className: "Class name",
+    configVersion: "Config version",
+    directory: "Directory",
+    export: "Export",
+    features: "Features",
+    function: "Function",
+    globalClass: "Global class",
+    inputActions: "Input actions",
+    isGodotProject: "Godot project",
     language: "Language",
-    memberSignatureCount: "Members",
-    name: "Name",
-    namespace: "Namespace",
-    partial: "Partial declaration",
-    productName: "Product",
-    qualifiedName: "Qualified name",
-    renderPipeline: "Render pipeline",
-    scriptingBackend: "Scripting backend",
-    source: "Source",
-    symbol: "Assembly symbol",
-    unityRevision: "Unity revision",
-    unityVersion: "Unity version",
-    version: "Version",
+    mainScene: "Main scene",
+    path: "Path",
+    projectName: "Project name",
+    renderer: "Renderer",
+    signal: "Signal",
+    tool: "Editor tool",
+    usesDotnet: "Uses .NET",
   };
   return labels[value] ?? humanize(value);
 }
@@ -2226,13 +2243,14 @@ function humanize(value: string): string {
 
 function entityDescription(entity: KnowledgeEntity): string {
   const descriptions: Record<KnowledgeEntity["kind"], string> = {
-    project: "Indexed overview of this Unity project.",
-    module: "A project folder that groups related code.",
-    scene: "A Unity scene asset.",
-    prefab: "A reusable Unity prefab asset.",
-    script: "A C# source file and the types it declares.",
-    type: "A C# type with its members, inheritance, and dependencies.",
-    package: "A package available to this Unity project.",
+    project: "Indexed overview of this Godot project.",
+    module: "A res:// folder that groups related project files.",
+    scene: "A Godot packed scene and its declared nodes or dependencies.",
+    resource: "A Godot resource used by scenes or scripts.",
+    script: "A GDScript or C# source file and the class it declares.",
+    class: "A Godot class with its base type and script relationships.",
+    shader: "A Godot shader source and its resource relationships.",
+    addon: "An editor or runtime addon under res://addons.",
   };
   return descriptions[entity.kind];
 }
@@ -2241,7 +2259,7 @@ function scopeLabel(scope: KnowledgeEntity["scope"]): string {
   const labels: Record<KnowledgeEntity["scope"], string> = {
     project: "Project",
     "first-party": "Project code",
-    package: "Package",
+    addon: "Addon",
     external: "External",
   };
   return labels[scope];

@@ -7,11 +7,11 @@ import { ChevronIcon } from "./icons";
  * Collapsible admin log at the bottom of the shell. Only rendered when
  * settings.debugDrawer is on.
  *
- * Each row is a one-line summary (`unity_verify`, `shell exit 1`,
+ * Each row is a one-line summary (`godot_verify`, `shell exit 1`,
  * `turn.failed`) rather than a raw JSON blob — `summarizeEvent` normalizes both
  * agent backends into the same shape, so this reads identically on Claude and
  * Codex. Click a row for the full event. The filter box and Errors-only toggle
- * exist because the thing you're almost always hunting is one failed Unity tool
+ * exist because the thing you're almost always hunting is one failed Godot tool
  * call buried in a few hundred token deltas.
  */
 export default function DebugDrawer() {

@@ -47,10 +47,9 @@ struct BuilderRaw {
     screenshot_path: Option<String>,
 }
 
-/// What the project's ground-truth gate (`unity_qa`) returned when the critic
-/// ran it. This is the one part of a QA verdict that is not the reviewer's
-/// opinion — compile status, console errors, tests, missing scripts and
-/// dangling references all come back as structured checks.
+/// What the project's ground-truth `godot_verify` gate returned. It covers a
+/// real headless import and GDScript syntax; tests remain explicitly
+/// `not_configured` unless the project supplies a real runner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gate {
     Pass,
@@ -72,7 +71,7 @@ pub struct QaReflection {
 impl QaReflection {
     /// The verdict the loop acts on: the reviewer's judgement **and** a passing
     /// gate. A reviewer who likes the screenshot cannot finish the loop over a
-    /// failing compile or a red test.
+    /// failing import or script check.
     pub fn accepted(&self) -> bool {
         self.pass && self.gate == Gate::Pass
     }
@@ -85,13 +84,13 @@ impl QaReflection {
         match (self.pass, self.gate) {
             (_, Gate::Pass) => notes.to_string(),
             (true, Gate::Fail) => format!(
-                "unity_qa failed, so this is not done regardless of how it looks. \
-                 Run unity_qa yourself, fix every failing check, and re-verify. \
+                "godot_verify failed, so this is not done regardless of how it looks. \
+                 Run godot_verify yourself, fix every failing import or script check, and re-verify. \
                  Reviewer notes: {notes}"
             ),
             (true, Gate::Unavailable) => format!(
-                "unity_qa did not run, so nothing is proven. Get it running \
-                 (check the Unity bridge is connected) and make it pass before \
+                "godot_verify did not run, so nothing is proven. Get it running \
+                 (check the project path and Godot installation) and make it pass before \
                  claiming done. Reviewer notes: {notes}"
             ),
             (false, _) => notes.to_string(),
@@ -237,7 +236,7 @@ pub fn decide_after_builder(
 }
 
 /// Decision after a QA turn. Takes the *effective* verdict
-/// ([`QaReflection::accepted`] — reviewer judgement AND a passing `unity_qa`
+/// ([`QaReflection::accepted`] — reviewer judgement AND a passing `godot_verify`
 /// gate); `None` means the QA block was unparseable. Anything but `Some(true)`
 /// keeps iterating, never a silent pass.
 pub fn decide_after_qa(
@@ -384,7 +383,8 @@ mod tests {
         assert_eq!(silent.gate, Gate::Unavailable);
 
         let nonsense =
-            parse_qa("```json\n{\"pass\":true,\"gate\":\"probably?\",\"notes\":\"\"}\n```").unwrap();
+            parse_qa("```json\n{\"pass\":true,\"gate\":\"probably?\",\"notes\":\"\"}\n```")
+                .unwrap();
         assert_eq!(nonsense.gate, Gate::Unavailable);
     }
 
@@ -418,7 +418,7 @@ mod tests {
             parse_qa("```json\n{\"pass\":true,\"gate\":\"fail\",\"notes\":\"looks great\"}\n```")
                 .unwrap();
         let feedback = blocked.feedback();
-        assert!(feedback.contains("unity_qa failed"));
+        assert!(feedback.contains("godot_verify failed"));
         assert!(feedback.contains("looks great"));
 
         // A genuine reviewer rejection is passed through untouched.

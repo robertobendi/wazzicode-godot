@@ -1,9 +1,9 @@
 {
-  "name": "unity-vibe-os",
+  "name": "godot-vibe-os",
   "private": true,
-  "version": "0.5.2",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Unity Vibe OS — local Unity-aware operating layer for AI-assisted Unity game development with Claude Code.",
+  "description": "Godot Vibe OS — a live Godot editor operating layer for AI-assisted game development.",
   "engines": {
     "node": ">=20"
   },
@@ -17,7 +17,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "uvibe": "node apps/cli/bin/uvibe"
+    "test:godot": "node tests/godot/integration.mjs",
+    "gvibe": "node apps/cli/bin/gvibe"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

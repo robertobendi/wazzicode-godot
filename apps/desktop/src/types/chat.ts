@@ -10,7 +10,7 @@ export interface StagedResource {
   id: string;
   kind: ResourceKind;
   originalName: string;
-  /** Absolute path of the copy under <project>/.unity-vibe/inbox. */
+  /** Absolute path of the copy under <project>/.godot-vibe/inbox. */
   stagedPath: string;
   byteSize: number;
 }
@@ -18,7 +18,7 @@ export interface StagedResource {
 /** A staged resource attached to a message. */
 export interface Attachment {
   id: string;
-  /** Absolute path on disk (staged under <project>/.unity-vibe/inbox). */
+  /** Absolute path on disk (staged under <project>/.godot-vibe/inbox). */
   path: string;
   name: string;
   kind: ResourceKind;
@@ -36,9 +36,9 @@ export interface ToolActivity {
   id: string;
   /** Same as `id` — the tool_use_id used to resolve the later tool_result. */
   toolUseId: string;
-  /** Raw tool name, e.g. "mcp__unity-vibe-os__unity_orient". */
+  /** Raw tool name, e.g. "mcp__godot-vibe-os__godot_orient". */
   name: string;
-  /** Human label from toolLabels.ts, e.g. "Getting oriented in Unity". */
+  /** Human label from toolLabels.ts, e.g. "Getting oriented in Godot". */
   friendlyLabel: string;
   status: ActivityStatus;
   /** Tool input object, when present. */

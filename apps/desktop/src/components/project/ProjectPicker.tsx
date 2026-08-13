@@ -6,7 +6,7 @@ import Logo from "@/components/shell/Logo";
 import type { ProjectInfo } from "@/types/project";
 
 /**
- * First-run / project-switch screen: pick a folder, validate it's a Unity
+ * First-run / project-switch screen: pick a folder, validate it's a Godot
  * project, and open it. Also lists recent projects for one-click reopening.
  */
 interface ProjectPickerProps {
@@ -36,14 +36,10 @@ export default function ProjectPicker({
     setError(null);
     setChecking(true);
     try {
-      const info = await api.validateUnityProject(path);
+      const info = await api.validateGodotProject(path);
       if (!info.ok) {
         setCandidate(null);
-        setError(
-          `That folder doesn't look like a Unity project (missing ${
-            info.hasAssets ? "" : "Assets/ "
-          }${info.hasProjectSettings ? "" : "ProjectSettings/"}).`.trim(),
-        );
+        setError("That folder doesn't look like a Godot project (missing project.godot).");
       } else {
         setCandidate(info);
       }
@@ -87,11 +83,11 @@ export default function ProjectPicker({
         );
         return;
       }
-      const refreshed = await api.validateUnityProject(info.path);
+      const refreshed = await api.validateGodotProject(info.path);
       setCandidate(refreshed);
       if (!refreshed.brainReady) {
         setError(
-          "The project scan finished without creating its knowledge manifest. Try preparing it again.",
+          "The project scan finished without creating its project brain. Try preparing it again.",
         );
         return;
       }
@@ -112,11 +108,11 @@ export default function ProjectPicker({
     setError(null);
     setChecking(true);
     try {
-      const info = await api.validateUnityProject(path);
+      const info = await api.validateGodotProject(path);
       if (!info.ok || !info.brainReady) {
         setCandidate(info.ok ? info : null);
         if (!info.ok) {
-          setError("That recent folder is no longer a valid Unity project.");
+          setError("That recent folder is no longer a valid Godot project.");
         }
         return;
       }
@@ -135,12 +131,11 @@ export default function ProjectPicker({
           <Logo size={26} />
         </div>
         <h1 className="text-2xl font-semibold tracking-tight text-fg">
-          Welcome to foundry-unity
+          Foundry for Godot
         </h1>
         <p className="mt-2 text-sm text-fg-muted">
-          Open the folder that holds your game — the one with{" "}
-          <code className="text-fg-dim">Assets</code> and{" "}
-          <code className="text-fg-dim">ProjectSettings</code>.
+          Choose the folder containing your game&apos;s{" "}
+          <code className="text-fg-dim">project.godot</code> file.
         </p>
 
         <button
@@ -161,10 +156,13 @@ export default function ProjectPicker({
             </div>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
               <Tag>
-                Unity {candidate.unityVersion ?? "version unknown"}
+                Godot {candidate.godotVersion ?? "version unknown"}
               </Tag>
-              <Tag ok={candidate.uvibeInitialized}>
-                {candidate.uvibeInitialized
+              <Tag ok={candidate.addonInstalled}>
+                {candidate.addonInstalled ? "Editor addon installed" : "Editor addon missing"}
+              </Tag>
+              <Tag ok={candidate.vibeInitialized}>
+                {candidate.vibeInitialized
                   ? `Vibe OS ready${
                       candidate.safetyMode ? ` · ${candidate.safetyMode}` : ""
                     }`
@@ -178,7 +176,7 @@ export default function ProjectPicker({
             </div>
             {!candidate.brainReady && (
               <p className="mt-3 text-xs leading-relaxed text-fg-muted">
-                foundry-unity will scan the project once and build its
+                Foundry will scan the project once and build its
                 searchable map before opening it.
               </p>
             )}

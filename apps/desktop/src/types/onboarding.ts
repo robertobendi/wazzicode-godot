@@ -13,7 +13,7 @@ export interface CliStatus {
 }
 
 export interface NodeSidecar {
-  /** True in a packaged build (bundled node + uvibe.cjs present). */
+  /** True in a packaged build (bundled node + gvibe.cjs present). */
   bundled: boolean;
 }
 
@@ -35,9 +35,13 @@ export interface SetupStep {
 }
 
 export interface DoctorSummary {
+  projectValid: boolean;
   configOk: boolean;
-  packageOk: boolean;
+  addonDetected: boolean;
+  addonEnabled: boolean;
+  brainReady: boolean;
   bridgeReachable: boolean;
+  ok: boolean;
 }
 
 export interface SetupResult {

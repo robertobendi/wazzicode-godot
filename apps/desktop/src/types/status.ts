@@ -8,7 +8,7 @@ export type BridgeState =
 
 export interface StatusUpdate {
   state: BridgeState;
-  compiling: boolean;
+  importing: boolean;
   playMode: boolean;
   friendly: string;
 }

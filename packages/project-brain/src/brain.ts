@@ -1,41 +1,40 @@
 import { promises as fs } from "node:fs";
-import path from "node:path";
-import { writeConfigIfMissing } from "@uvibe/safety";
-import { detectUnityProject, UnityProjectDetection } from "./detect.js";
-import { scanProject, ProjectScan } from "./scan.js";
-import { analyzeScripts, ScriptHeuristics } from "./heuristics.js";
-import {
-  renderBrainMarkdown,
-  renderClaudeContextMarkdown,
-  renderKnowledgeIndexMarkdown,
-  DEFAULT_CONVENTIONS_MD,
-} from "./templates.js";
+import { resolveProjectPath } from "@gvibe/safety";
+import { detectGodotProject, type GodotAutoload, type GodotProjectDetection } from "./detect.js";
+import { analyzeScripts, type ScriptHeuristics } from "./heuristics.js";
 import { buildKnowledgeBase } from "./knowledge-builder.js";
 import {
   atomicWriteFile,
-  KnowledgeBase,
+  type KnowledgeBase,
   readKnowledgeBase,
   withKnowledgeProjectLock,
   writeKnowledgeBase,
 } from "./knowledge.js";
+import { scanProject, type ProjectScan } from "./scan.js";
+import {
+  DEFAULT_CONVENTIONS_MD,
+  renderBrainMarkdown,
+  renderClaudeContextMarkdown,
+  renderKnowledgeIndexMarkdown,
+} from "./templates.js";
 
 export interface Brain {
   generatedAt: number;
   identity: {
     projectPath: string;
-    isUnityProject: boolean;
-    productName?: string;
-    companyName?: string;
-    bundleIdentifier?: string;
+    isGodotProject: boolean;
+    projectName?: string;
   };
   engine: {
-    unityVersion?: string;
-    unityRevision?: string;
-    renderPipeline?: string;
-    inputSystem?: string;
-    scriptingBackend?: string;
-    defaultBuildTarget?: string;
-    packages?: Array<{ name: string; version: string }>;
+    configVersion?: number;
+    versionHint?: string;
+    mainScene?: string;
+    features: string[];
+    renderer?: string;
+    viewport?: { width?: number; height?: number };
+    autoloads: GodotAutoload[];
+    inputActions: string[];
+    usesDotnet: boolean;
   };
   assets: ProjectScan;
   architecture: ScriptHeuristics;
@@ -64,9 +63,24 @@ export interface EnsureBrainCurrentResult extends BrainGenerationResult {
   reason: BrainFreshnessReason;
 }
 
+export interface BrainFreshnessStatus {
+  exists: boolean;
+  stale: boolean;
+  reason: BrainFreshnessReason;
+  ageMs?: number;
+}
+
+interface BrainFreshnessInspection {
+  status: BrainFreshnessStatus;
+  knowledgeBase: KnowledgeBase | null;
+  brain: Brain | null;
+  maxFiles?: number;
+  scan?: ProjectScan;
+}
+
 export async function buildBrain(projectPath: string, opts: { maxFiles?: number } = {}): Promise<Brain> {
   const [detection, scan] = await Promise.all([
-    detectUnityProject(projectPath),
+    detectGodotProject(projectPath),
     scanProject(projectPath, { maxFiles: opts.maxFiles }),
   ]);
   return buildBrainFromScan(projectPath, detection, scan);
@@ -77,14 +91,6 @@ export async function generateBrain(opts: BrainGenerationOptions): Promise<Brain
   return withKnowledgeProjectLock(opts.projectPath, () => generateBrainUnlocked(opts));
 }
 
-async function generateBrainUnlocked(opts: BrainGenerationOptions): Promise<BrainGenerationResult> {
-  const [detection, scan] = await Promise.all([
-    detectUnityProject(opts.projectPath),
-    scanProject(opts.projectPath, { maxFiles: opts.maxFiles }),
-  ]);
-  return generateBrainFromScan(opts, detection, scan);
-}
-
 export async function ensureBrainCurrent(
   projectPath: string,
   opts: EnsureBrainCurrentOptions = {},
@@ -92,42 +98,17 @@ export async function ensureBrainCurrent(
   return withKnowledgeProjectLock(projectPath, () => ensureBrainCurrentUnlocked(projectPath, opts));
 }
 
-async function ensureBrainCurrentUnlocked(
+export async function inspectBrainFreshness(
   projectPath: string,
-  opts: EnsureBrainCurrentOptions,
-): Promise<EnsureBrainCurrentResult> {
-  const existing = await readKnowledgeBase(projectPath);
-  if (!existing) return refresh(projectPath, opts.maxFiles, "absent");
-  const maxFiles = opts.maxFiles ?? existing.manifest.coverage.cap;
-  if (existing.manifest.dirty.value) {
-    return refresh(projectPath, maxFiles, "dirty");
-  }
-  if (!(await knowledgeIndexIsCurrent(projectPath, existing))) {
-    return refresh(projectPath, maxFiles, "incomplete");
-  }
-  const scan = await scanProject(projectPath, { maxFiles });
-  if (scan.coverage.sourceFingerprint !== existing.manifest.fingerprint.source) {
-    const detection = await detectUnityProject(projectPath);
-    const generated = await generateBrainFromScan({ projectPath, write: true, maxFiles }, detection, scan);
-    return { ...generated, refreshed: true, reason: "changed" };
-  }
-
-  const legacy = await readBrain(projectPath);
-  if (!legacy) return refresh(projectPath, maxFiles, "incomplete");
-  return {
-    brain: legacy,
-    knowledgeBase: existing,
-    written: [],
-    refreshed: false,
-    reason: "current",
-  };
+  opts: EnsureBrainCurrentOptions = {},
+): Promise<BrainFreshnessStatus> {
+  return (await inspectBrainFreshnessUnlocked(projectPath, opts)).status;
 }
 
 export async function readBrain(projectPath: string): Promise<Brain | null> {
-  const file = path.join(projectPath, ".unity-vibe", "project_brain.json");
   try {
-    const raw = await fs.readFile(file, "utf8");
-    return JSON.parse(raw) as Brain;
+    const file = (await resolveProjectPath(projectPath, ".godot-vibe/brain/project.json")).absolute;
+    return JSON.parse(await fs.readFile(file, "utf8")) as Brain;
   } catch {
     return null;
   }
@@ -137,76 +118,145 @@ export async function brainAgeMs(projectPath: string): Promise<number | null> {
   const knowledge = await readKnowledgeBase(projectPath);
   if (knowledge) return Date.now() - knowledge.manifest.generatedAt;
   const brain = await readBrain(projectPath);
-  if (!brain) return null;
-  return Date.now() - brain.generatedAt;
+  return brain ? Date.now() - brain.generatedAt : null;
+}
+
+async function generateBrainUnlocked(opts: BrainGenerationOptions): Promise<BrainGenerationResult> {
+  const [detection, scan] = await Promise.all([
+    detectGodotProject(opts.projectPath),
+    scanProject(opts.projectPath, { maxFiles: opts.maxFiles }),
+  ]);
+  return generateBrainFromScan(opts, detection, scan);
+}
+
+async function ensureBrainCurrentUnlocked(
+  projectPath: string,
+  opts: EnsureBrainCurrentOptions,
+): Promise<EnsureBrainCurrentResult> {
+  const inspected = await inspectBrainFreshnessUnlocked(projectPath, opts);
+  if (!inspected.knowledgeBase) return refresh(projectPath, inspected.maxFiles, "absent");
+  if (inspected.status.reason === "changed") {
+    const detection = await detectGodotProject(projectPath);
+    const generated = await generateBrainFromScan(
+      { projectPath, write: true, maxFiles: inspected.maxFiles },
+      detection,
+      inspected.scan!,
+    );
+    return { ...generated, refreshed: true, reason: "changed" };
+  }
+  if (inspected.status.reason !== "current") {
+    return refresh(projectPath, inspected.maxFiles, inspected.status.reason);
+  }
+  return {
+    brain: inspected.brain!,
+    knowledgeBase: inspected.knowledgeBase,
+    written: [],
+    refreshed: false,
+    reason: "current",
+  };
+}
+
+async function inspectBrainFreshnessUnlocked(
+  projectPath: string,
+  opts: EnsureBrainCurrentOptions,
+): Promise<BrainFreshnessInspection> {
+  const knowledgeBase = await readKnowledgeBase(projectPath);
+  if (!knowledgeBase) {
+    return {
+      status: { exists: false, stale: false, reason: "absent" },
+      knowledgeBase: null,
+      brain: null,
+      maxFiles: opts.maxFiles,
+    };
+  }
+  const maxFiles = opts.maxFiles ?? knowledgeBase.manifest.coverage.cap;
+  const ageMs = Date.now() - knowledgeBase.manifest.generatedAt;
+  const stale = (reason: Exclude<BrainFreshnessReason, "current" | "absent">): BrainFreshnessInspection => ({
+    status: { exists: true, stale: true, reason, ageMs },
+    knowledgeBase,
+    brain: null,
+    maxFiles,
+  });
+  if (knowledgeBase.manifest.dirty.value) return stale("dirty");
+  if (!(await generatedFilesAreCurrent(projectPath, knowledgeBase))) return stale("incomplete");
+  const scan = await scanProject(projectPath, { maxFiles });
+  if (scan.coverage.sourceFingerprint !== knowledgeBase.manifest.fingerprint.source) {
+    return { ...stale("changed"), scan };
+  }
+  const brain = await readBrain(projectPath);
+  if (!brain) return stale("incomplete");
+  return {
+    status: { exists: true, stale: false, reason: "current", ageMs },
+    knowledgeBase,
+    brain,
+    maxFiles,
+    scan,
+  };
 }
 
 async function buildBrainFromScan(
   projectPath: string,
-  detection: UnityProjectDetection,
+  detection: GodotProjectDetection,
   scan: ProjectScan,
 ): Promise<Brain> {
-  const arch = await analyzeScripts(projectPath, scan.scripts);
+  const architecture = await analyzeScripts(projectPath, scan.scripts);
   return {
     generatedAt: Date.now(),
     identity: {
       projectPath,
-      isUnityProject: detection.isUnityProject,
-      productName: detection.productName,
-      companyName: detection.companyName,
-      bundleIdentifier: detection.bundleIdentifier,
+      isGodotProject: detection.isGodotProject,
+      projectName: detection.projectName,
     },
     engine: {
-      unityVersion: detection.unityVersion,
-      unityRevision: detection.unityRevision,
-      renderPipeline: detection.renderPipeline,
-      inputSystem: detection.inputSystem,
-      scriptingBackend: detection.scriptingBackend,
-      defaultBuildTarget: detection.defaultBuildTarget,
-      packages: detection.packages,
+      configVersion: detection.configVersion,
+      versionHint: detection.features.find((feature) => /^\d+\.\d+/.test(feature)),
+      mainScene: detection.mainScene,
+      features: detection.features,
+      renderer: detection.renderer,
+      viewport: detection.viewport,
+      autoloads: detection.autoloads,
+      inputActions: detection.inputActions,
+      usesDotnet: detection.usesDotnet,
     },
     assets: scan,
-    architecture: arch,
+    architecture,
   };
 }
 
 async function generateBrainFromScan(
   opts: BrainGenerationOptions,
-  detection: UnityProjectDetection,
+  detection: GodotProjectDetection,
   scan: ProjectScan,
 ): Promise<BrainGenerationResult> {
   const brain = await buildBrainFromScan(opts.projectPath, detection, scan);
   const { knowledgeBase } = await buildKnowledgeBase(opts.projectPath, brain, scan);
   const written: string[] = [];
   if (opts.write ?? true) {
-    const dir = path.join(opts.projectPath, ".unity-vibe");
-    await fs.mkdir(dir, { recursive: true });
-
-    const jsonPath = path.join(dir, "project_brain.json");
-    const mdPath = path.join(dir, "project_brain.md");
-    const claudeCtxPath = path.join(dir, "claude_context.md");
-    await Promise.all([
-      atomicWriteFile(jsonPath, JSON.stringify(brain, null, 2) + "\n"),
-      atomicWriteFile(mdPath, renderBrainMarkdown(brain, knowledgeBase.manifest)),
-      atomicWriteFile(claudeCtxPath, renderClaudeContextMarkdown(brain, knowledgeBase.manifest)),
+    const [
+      directory,
+      projectPath,
+      overviewPath,
+      contextPath,
+      conventionsPath,
+    ] = await Promise.all([
+      resolveProjectPath(opts.projectPath, ".godot-vibe/brain").then(({ absolute }) => absolute),
+      resolveProjectPath(opts.projectPath, ".godot-vibe/brain/project.json").then(({ absolute }) => absolute),
+      resolveProjectPath(opts.projectPath, ".godot-vibe/brain/overview.md").then(({ absolute }) => absolute),
+      resolveProjectPath(opts.projectPath, ".godot-vibe/brain/agent-context.md").then(({ absolute }) => absolute),
+      resolveProjectPath(opts.projectPath, ".godot-vibe/conventions.md").then(({ absolute }) => absolute),
     ]);
-    written.push(jsonPath, mdPath, claudeCtxPath);
-
-    const knowledgeWritten = await writeKnowledgeBase(
-      opts.projectPath,
-      knowledgeBase,
-      renderKnowledgeIndexMarkdown(knowledgeBase),
-    );
-    written.push(...knowledgeWritten);
-
-    const conventionsPath = path.join(dir, "conventions.md");
+    await fs.mkdir(directory, { recursive: true });
+    await Promise.all([
+      atomicWriteFile(projectPath, `${JSON.stringify(brain, null, 2)}\n`),
+      atomicWriteFile(overviewPath, renderBrainMarkdown(brain, knowledgeBase.manifest)),
+      atomicWriteFile(contextPath, renderClaudeContextMarkdown(brain, knowledgeBase.manifest)),
+    ]);
+    written.push(projectPath, overviewPath, contextPath);
+    written.push(...await writeKnowledgeBase(opts.projectPath, knowledgeBase, renderKnowledgeIndexMarkdown(knowledgeBase)));
     if (!(await fileExists(conventionsPath))) {
       await atomicWriteFile(conventionsPath, DEFAULT_CONVENTIONS_MD);
       written.push(conventionsPath);
     }
-
-    const cfg = await writeConfigIfMissing(opts.projectPath);
-    if (cfg.written) written.push(cfg.path);
   }
   return { brain, knowledgeBase, written };
 }
@@ -220,19 +270,24 @@ async function refresh(
   return { ...generated, refreshed: true, reason };
 }
 
-async function fileExists(p: string): Promise<boolean> {
+async function generatedFilesAreCurrent(projectPath: string, knowledgeBase: KnowledgeBase): Promise<boolean> {
   try {
-    await fs.access(p);
-    return true;
+    const [indexPath, generatedProjectPath] = await Promise.all([
+      resolveProjectPath(projectPath, ".godot-vibe/brain/index.md").then(({ absolute }) => absolute),
+      resolveProjectPath(projectPath, ".godot-vibe/brain/project.json").then(({ absolute }) => absolute),
+    ]);
+    const index = await fs.readFile(indexPath, "utf8");
+    await fs.access(generatedProjectPath);
+    return index === renderKnowledgeIndexMarkdown(knowledgeBase);
   } catch {
     return false;
   }
 }
 
-async function knowledgeIndexIsCurrent(projectPath: string, knowledgeBase: KnowledgeBase): Promise<boolean> {
+async function fileExists(value: string): Promise<boolean> {
   try {
-    const indexPath = path.join(projectPath, ".unity-vibe", "knowledge", "index.md");
-    return await fs.readFile(indexPath, "utf8") === renderKnowledgeIndexMarkdown(knowledgeBase);
+    await fs.access(value);
+    return true;
   } catch {
     return false;
   }

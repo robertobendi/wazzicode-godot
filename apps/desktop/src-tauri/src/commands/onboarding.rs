@@ -5,12 +5,12 @@
 //!   selected agent's CLI, Claude or Codex (streaming progress on
 //!   `onboarding:progress`).
 //! - `onboarding_setup_project` — one app-managed "prepare this project"
-//!   sequence: initialize, install the Unity package, build the project
+//!   sequence: initialize, install the Godot addon, build the project
 //!   knowledge base, configure access and the agent connection, tidy scratch paths,
 //!   then verify.
 //!
-//! Sub-processes reuse `mcpconfig::resolve_uvibe` so the wizard runs the SAME
-//! uvibe binary the chat/loop MCP server will (bundled sidecar in release, the
+//! Sub-processes reuse `mcpconfig::resolve_gvibe` so the wizard runs the SAME
+//! gvibe binary the chat/loop MCP server will (bundled sidecar in release, the
 //! monorepo CLI in dev).
 
 use crate::agent::Backend;
@@ -38,7 +38,7 @@ pub struct CliStatus {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeSidecar {
-    /// True in a packaged build (bundled node + uvibe.cjs present).
+    /// True in a packaged build (bundled node + gvibe.cjs present).
     pub bundled: bool,
 }
 
@@ -70,9 +70,13 @@ pub struct SetupStep {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DoctorSummary {
+    pub project_valid: bool,
     pub config_ok: bool,
-    pub package_ok: bool,
+    pub addon_detected: bool,
+    pub addon_enabled: bool,
+    pub brain_ready: bool,
     pub bridge_reachable: bool,
+    pub ok: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,7 +152,7 @@ pub async fn onboarding_install_cli(
     .map_err(|e| AppError::Other(format!("install task failed: {e}")))?
 }
 
-/// Prepare a Unity project for the app. Each step emits friendly progress and
+/// Prepare a Godot project for the app. Each step emits friendly progress and
 /// contributes a `SetupStep` to the aggregated result.
 #[tauri::command]
 pub async fn onboarding_setup_project(
@@ -162,10 +166,10 @@ pub async fn onboarding_setup_project(
         .try_acquire(&project_path)
         .ok_or_else(|| AppError::Other("busy: another task is using this project".into()))?;
     let config_dir = state.config_dir.clone();
-    // Resolve the uvibe invocation + package source on the main thread (needs the
+    // Resolve the gvibe invocation + addon source on the main thread (needs the
     // Tauri path resolver), then do the blocking sub-spawns off-runtime.
-    let (uvibe_cmd, uvibe_prefix) = crate::mcpconfig::resolve_uvibe(&app);
-    let pkg_source = crate::mcpconfig::unity_package_source(&app);
+    let (gvibe_cmd, gvibe_prefix) = crate::mcpconfig::resolve_gvibe(&app);
+    let addon_source = crate::mcpconfig::godot_addon_source(&app);
 
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
@@ -173,9 +177,9 @@ pub async fn onboarding_setup_project(
             app,
             project_path,
             config_dir,
-            uvibe_cmd,
-            uvibe_prefix,
-            pkg_source,
+            gvibe_cmd,
+            gvibe_prefix,
+            addon_source,
         )
     })
     .await
@@ -248,7 +252,7 @@ fn check_cli_capabilities(backend: Backend) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "this version is missing features foundry-unity needs; update the {} CLI",
+            "this version is missing features foundry-godot needs; update the {} CLI",
             backend.label()
         ))
     }
@@ -434,80 +438,60 @@ fn setup_blocking(
     app: AppHandle,
     project: PathBuf,
     config_dir: PathBuf,
-    uvibe_cmd: String,
-    uvibe_prefix: Vec<String>,
-    pkg_source: Option<PathBuf>,
+    gvibe_cmd: String,
+    gvibe_prefix: Vec<String>,
+    addon_source: Option<PathBuf>,
 ) -> AppResult<SetupResult> {
     let proj = project.to_string_lossy().to_string();
     let mut steps: Vec<SetupStep> = Vec::new();
 
-    // (a) uvibe init — .unity-vibe/ scaffold + CLAUDE.md block.
-    steps.push(run_uvibe_step(
+    // (a) gvibe init — .godot-vibe/ scaffold + CLAUDE.md block.
+    let init = run_gvibe_step(
         &app,
         "init",
-        &uvibe_cmd,
-        &uvibe_prefix,
+        &gvibe_cmd,
+        &gvibe_prefix,
         &["init", "--project", &proj, "--json"],
-    ));
-
-    // (b) Install the Unity Editor package when missing, or replace an older
-    // embedded copy with the version bundled with this Studio release.
-    let package_installed = unity_package_installed(&project);
-    let package_needs_install = pkg_source
-        .as_deref()
-        .map(|source| unity_package_needs_install(&project, source))
-        .unwrap_or(!package_installed);
-    if !package_needs_install {
-        emit_line(
-            &app,
-            "install_package",
-            "Unity package is current — skipping.",
-        );
-        steps.push(SetupStep {
-            id: "install_package".into(),
-            ok: true,
-            detail: "already current".into(),
+    );
+    let init_ok = init.ok;
+    steps.push(init);
+    if !init_ok {
+        return Ok(SetupResult {
+            steps,
+            summary: None,
         });
-    } else if let Some(src) = pkg_source.as_deref() {
-        if package_installed {
-            emit_line(&app, "install_package", "Updating the Unity package…");
-        }
-        let src_str = src.to_string_lossy().to_string();
-        steps.push(run_uvibe_step(
+    }
+
+    // (b) Install/update the editor addon from the exact source bundled with
+    // this app build. `gvibe install-addon` owns the copy and enable semantics.
+    if let Some(source) = addon_source.as_deref() {
+        let source_arg = format!("--source={}", source.to_string_lossy());
+        steps.push(run_gvibe_step(
             &app,
-            "install_package",
-            &uvibe_cmd,
-            &uvibe_prefix,
-            &[
-                "install-unity-package",
-                "--project",
-                &proj,
-                "--source",
-                &src_str,
-                "--mode",
-                "copy",
-            ],
+            "install_addon",
+            &gvibe_cmd,
+            &gvibe_prefix,
+            &["install-addon", "--project", &proj, &source_arg],
         ));
     } else {
         emit_line(
             &app,
-            "install_package",
-            "Couldn't find the UnityVibeOS package to install.",
+            "install_addon",
+            "Couldn't find the Godot Vibe OS addon to install.",
         );
         steps.push(SetupStep {
-            id: "install_package".into(),
+            id: "install_addon".into(),
             ok: false,
-            detail: "UnityVibeOS source not found".into(),
+            detail: "godot/addons/godot_vibe_os source not found".into(),
         });
     }
 
-    // (c) Build the canonical project knowledge store after package setup so
-    // the initial map includes the exact embedded Unity Vibe OS sources too.
-    steps.push(run_uvibe_step(
+    // (c) Build the canonical project map after addon setup.
+    steps.push(run_gvibe_step(
         &app,
         "brain",
-        &uvibe_cmd,
-        &uvibe_prefix,
+        &gvibe_cmd,
+        &gvibe_prefix,
         &["brain", "--project", &proj],
     ));
 
@@ -527,7 +511,7 @@ fn setup_blocking(
         }),
     }
 
-    // (e) App-managed MCP config (so the chat/loop runs get the unity server).
+    // (e) App-managed MCP config for chat and autonomous-loop runs.
     emit_line(&app, "mcp_config", "Writing the agent connection…");
     match crate::mcpconfig::ensure_mcp_config(&app, &config_dir, &project) {
         Ok(p) => steps.push(SetupStep {
@@ -548,7 +532,7 @@ fn setup_blocking(
         Ok(true) => steps.push(SetupStep {
             id: "gitignore".into(),
             ok: true,
-            detail: "added .unity-vibe/inbox/ + loop/ + studio/".into(),
+            detail: "ignored Godot cache and generated Foundry state".into(),
         }),
         Ok(false) => steps.push(SetupStep {
             id: "gitignore".into(),
@@ -563,21 +547,21 @@ fn setup_blocking(
     }
 
     // (g) Verify with doctor --json.
-    let summary = run_doctor_summary(&app, &uvibe_cmd, &uvibe_prefix, &proj, &mut steps);
+    let summary = run_doctor_summary(&app, &gvibe_cmd, &gvibe_prefix, &proj, &mut steps);
 
     Ok(SetupResult { steps, summary })
 }
 
-fn run_uvibe_step(
+fn run_gvibe_step(
     app: &AppHandle,
     id: &str,
     cmd: &str,
     prefix: &[String],
     sub: &[&str],
 ) -> SetupStep {
-    emit_line(app, id, &format!("uvibe {}", sub.join(" ")));
+    emit_line(app, id, &format!("gvibe {}", sub.join(" ")));
     let args = sub.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let command = match crate::mcpconfig::resolved_uvibe_command(cmd, prefix, &args) {
+    let command = match crate::mcpconfig::resolved_gvibe_command(cmd, prefix, &args) {
         Ok(c) => c,
         Err(e) => {
             return SetupStep {
@@ -587,8 +571,7 @@ fn run_uvibe_step(
             }
         }
     };
-    // The deep project scan can take materially longer than the small setup
-    // commands on a production Unity repository.
+    // The project scan can take materially longer than the small setup commands.
     let timeout = if id == "brain" {
         Duration::from_secs(600)
     } else {
@@ -626,7 +609,7 @@ fn run_doctor_summary(
         .iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>();
-    let command = match crate::mcpconfig::resolved_uvibe_command(cmd, prefix, &args) {
+    let command = match crate::mcpconfig::resolved_gvibe_command(cmd, prefix, &args) {
         Ok(c) => c,
         Err(e) => {
             steps.push(SetupStep {
@@ -654,21 +637,34 @@ fn run_doctor_summary(
         Ok(v) => {
             let b = |ptr: &str| v.pointer(ptr).and_then(|x| x.as_bool()).unwrap_or(false);
             let summary = DoctorSummary {
+                project_valid: b("/project/valid"),
                 config_ok: b("/config/exists"),
-                package_ok: b("/unityPackage/detected"),
+                addon_detected: b("/godotAddon/detected"),
+                addon_enabled: b("/godotAddon/enabled"),
+                brain_ready: b("/brain/exists") && !b("/brain/stale"),
                 bridge_reachable: b("/bridge/reachable"),
+                ok: b("/ok"),
             };
             emit_line(
                 app,
                 "doctor",
                 &format!(
-                    "config={} package={} bridge={}",
-                    summary.config_ok, summary.package_ok, summary.bridge_reachable
+                    "project={} config={} addon={}/{} map={} bridge={}",
+                    summary.project_valid,
+                    summary.config_ok,
+                    summary.addon_detected,
+                    summary.addon_enabled,
+                    summary.brain_ready,
+                    summary.bridge_reachable
                 ),
             );
             steps.push(SetupStep {
                 id: "doctor".into(),
-                ok: summary.config_ok && summary.package_ok,
+                ok: summary.project_valid
+                    && summary.config_ok
+                    && summary.addon_detected
+                    && summary.addon_enabled
+                    && summary.brain_ready,
                 detail: "verified".into(),
             });
             Some(summary)
@@ -690,10 +686,16 @@ fn run_doctor_summary(
 /// is the current file content (or `None` if absent). Returns the new content
 /// when a change is needed, else `None`.
 pub fn patch_gitignore(existing: Option<&str>) -> Option<String> {
-    const ENTRIES: [&str; 3] = [
-        ".unity-vibe/inbox/",
-        ".unity-vibe/loop/",
-        ".unity-vibe/studio/",
+    const ENTRIES: [&str; 9] = [
+        ".godot/",
+        ".godot-vibe/action_log.jsonl",
+        ".godot-vibe/brain/",
+        ".godot-vibe/inbox/",
+        ".godot-vibe/loop/",
+        ".godot-vibe/snapshots/",
+        ".godot-vibe/studio/",
+        ".godot-vibe/brain.lock*/",
+        ".godot-vibe/write.lock*/",
     ];
     let current = existing.unwrap_or("");
     let present = |needle: &str| current.lines().any(|l| l.trim() == needle);
@@ -705,12 +707,12 @@ pub fn patch_gitignore(existing: Option<&str>) -> Option<String> {
     if !out.is_empty() && !out.ends_with('\n') {
         out.push('\n');
     }
-    if !current.contains("foundry-unity scratch") && !current.contains("Unity Vibe Studio scratch")
+    if !current.contains("foundry-godot scratch") && !current.contains("Foundry for Godot scratch")
     {
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str("# foundry-unity scratch (safe to ignore)\n");
+        out.push_str("# foundry-godot scratch (safe to ignore)\n");
     }
     for e in missing {
         out.push_str(e);
@@ -720,8 +722,12 @@ pub fn patch_gitignore(existing: Option<&str>) -> Option<String> {
 }
 
 fn patch_gitignore_file(project: &Path) -> AppResult<bool> {
-    let path = project.join(".gitignore");
-    let existing = std::fs::read_to_string(&path).ok();
+    let path = crate::commands::project::contained_project_path(project, Path::new(".gitignore"))?;
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(existing) => Some(existing),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
     match patch_gitignore(existing.as_deref()) {
         Some(next) => {
             std::fs::write(&path, next)?;
@@ -729,69 +735,6 @@ fn patch_gitignore_file(project: &Path) -> AppResult<bool> {
         }
         None => Ok(false),
     }
-}
-
-/// True when the UnityVibeOS package is already present in the project (embedded
-/// under Packages/, or referenced from Packages/manifest.json).
-pub fn unity_package_installed(project: &Path) -> bool {
-    let packages = project.join("Packages");
-    if packages.join("com.uvibe.os").join("package.json").is_file()
-        || packages.join("UnityVibeOS").join("package.json").is_file()
-    {
-        return true;
-    }
-    std::fs::read_to_string(packages.join("manifest.json"))
-        .map(|raw| manifest_str_has_uvibe(&raw))
-        .unwrap_or(false)
-}
-
-/// True when setup should copy the bundled package into this project. Existing
-/// manifest-only installs and package files without a readable version are left
-/// untouched because Studio cannot prove that replacing them is an upgrade.
-pub fn unity_package_needs_install(project: &Path, source: &Path) -> bool {
-    if !unity_package_installed(project) {
-        return true;
-    }
-    match (
-        embedded_unity_package_version(project),
-        package_version(source),
-    ) {
-        (Some(installed), Some(available)) => installed != available,
-        _ => false,
-    }
-}
-
-fn embedded_unity_package_version(project: &Path) -> Option<String> {
-    let packages = project.join("Packages");
-    ["com.uvibe.os", "UnityVibeOS"]
-        .iter()
-        .find_map(|name| package_version(&packages.join(name)))
-}
-
-fn package_version(package: &Path) -> Option<String> {
-    std::fs::read_to_string(package.join("package.json"))
-        .ok()
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-        .and_then(|value| {
-            value
-                .get("version")?
-                .as_str()
-                .map(str::trim)
-                .map(str::to_owned)
-        })
-        .filter(|version| !version.is_empty())
-}
-
-/// Whether a Packages/manifest.json string references `com.uvibe.os`.
-pub fn manifest_str_has_uvibe(raw: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(raw)
-        .ok()
-        .and_then(|v| {
-            v.get("dependencies")
-                .and_then(|d| d.get("com.uvibe.os"))
-                .map(|_| true)
-        })
-        .unwrap_or(false)
 }
 
 // --- Process plumbing ---
@@ -959,10 +902,16 @@ mod tests {
     #[test]
     fn gitignore_patch_adds_all_entries_to_empty() {
         let out = patch_gitignore(None).expect("should add entries");
-        assert!(out.contains("# foundry-unity scratch (safe to ignore)"));
-        assert!(out.contains(".unity-vibe/inbox/"));
-        assert!(out.contains(".unity-vibe/loop/"));
-        assert!(out.contains(".unity-vibe/studio/"));
+        assert!(out.contains("# foundry-godot scratch (safe to ignore)"));
+        assert!(out.contains(".godot-vibe/inbox/"));
+        assert!(out.contains(".godot-vibe/loop/"));
+        assert!(out.contains(".godot-vibe/studio/"));
+        assert!(out.contains(".godot/"));
+        assert!(out.contains(".godot-vibe/action_log.jsonl"));
+        assert!(out.contains(".godot-vibe/brain/"));
+        assert!(out.contains(".godot-vibe/snapshots/"));
+        assert!(out.contains(".godot-vibe/write.lock*/"));
+        assert!(out.contains(".godot-vibe/brain.lock*/"));
     }
 
     #[test]
@@ -974,92 +923,47 @@ mod tests {
 
     #[test]
     fn gitignore_patch_preserves_legacy_heading_without_adding_a_second_heading() {
-        let existing = "# Unity Vibe Studio scratch (safe to ignore)\n.unity-vibe/inbox/\n";
+        let existing = "# Foundry for Godot scratch (safe to ignore)\n.godot-vibe/inbox/\n";
         let out = patch_gitignore(Some(existing)).expect("loop/ still missing");
-        assert!(out.contains("# Unity Vibe Studio scratch (safe to ignore)"));
-        assert!(!out.contains("# foundry-unity scratch (safe to ignore)"));
+        assert!(out.contains("# Foundry for Godot scratch (safe to ignore)"));
+        assert!(!out.contains("# foundry-godot scratch (safe to ignore)"));
     }
 
     #[test]
     fn gitignore_patch_preserves_existing_and_appends_missing() {
-        let existing = "Library/\nTemp/\n.unity-vibe/inbox/\n";
+        let existing = ".godot/\nTemp/\n.godot-vibe/inbox/\n";
         let out = patch_gitignore(Some(existing)).expect("loop/ still missing");
-        assert!(out.starts_with("Library/\nTemp/\n.unity-vibe/inbox/\n"));
-        assert!(out.contains(".unity-vibe/loop/"));
+        assert!(out.starts_with(".godot/\nTemp/\n.godot-vibe/inbox/\n"));
+        assert!(out.contains(".godot-vibe/loop/"));
         // inbox not duplicated.
-        assert_eq!(out.matches(".unity-vibe/inbox/").count(), 1);
+        assert_eq!(out.matches(".godot-vibe/inbox/").count(), 1);
     }
 
     #[test]
     fn gitignore_patch_handles_missing_trailing_newline() {
-        let out = patch_gitignore(Some("Library/")).unwrap();
-        assert!(out.contains("Library/\n"));
-        assert!(out.contains(".unity-vibe/loop/"));
+        let out = patch_gitignore(Some(".godot/")).unwrap();
+        assert!(out.contains(".godot/\n"));
+        assert!(out.contains(".godot-vibe/loop/"));
     }
 
+    #[cfg(unix)]
     #[test]
-    fn manifest_detection_from_fixture() {
-        let with =
-            r#"{"dependencies":{"com.unity.ugui":"1.0.0","com.uvibe.os":"file:UnityVibeOS"}}"#;
-        let without = r#"{"dependencies":{"com.unity.ugui":"1.0.0"}}"#;
-        assert!(manifest_str_has_uvibe(with));
-        assert!(!manifest_str_has_uvibe(without));
-        assert!(!manifest_str_has_uvibe("not json"));
-    }
+    fn gitignore_file_rejects_symlink_outside_project() {
+        use std::os::unix::fs::symlink;
 
-    #[test]
-    fn package_install_replaces_only_an_older_versioned_embedded_copy() {
-        let root = std::env::temp_dir().join(format!(
-            "unity-vibe-package-upgrade-{}",
-            nanoid::nanoid!(10)
-        ));
+        let root =
+            std::env::temp_dir().join(format!("godot-vibe-gitignore-{}", nanoid::nanoid!(10)));
         let project = root.join("project");
-        let installed = project.join("Packages").join("com.uvibe.os");
-        let source = root.join("source");
-        std::fs::create_dir_all(&installed).unwrap();
-        std::fs::create_dir_all(&source).unwrap();
-        std::fs::write(
-            installed.join("package.json"),
-            r#"{"name":"com.uvibe.os","version":"0.5.1"}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            source.join("package.json"),
-            r#"{"name":"com.uvibe.os","version":"0.5.2"}"#,
-        )
-        .unwrap();
+        let outside = root.join("outside-gitignore");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(&outside, "keep-me\n").unwrap();
+        symlink(&outside, project.join(".gitignore")).unwrap();
 
-        assert!(unity_package_needs_install(&project, &source));
-        std::fs::write(
-            installed.join("package.json"),
-            r#"{"name":"com.uvibe.os","version":"0.5.2"}"#,
-        )
-        .unwrap();
-        assert!(!unity_package_needs_install(&project, &source));
+        let error = patch_gitignore_file(&project).expect_err("outside symlink must be rejected");
+        assert!(error.to_string().contains("outside project"));
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep-me\n");
 
-        std::fs::write(installed.join("package.json"), "not json").unwrap();
-        assert!(!unity_package_needs_install(&project, &source));
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn package_install_runs_when_the_project_has_no_uvibe_package() {
-        let root = std::env::temp_dir().join(format!(
-            "unity-vibe-package-missing-{}",
-            nanoid::nanoid!(10)
-        ));
-        let project = root.join("project");
-        let source = root.join("source");
-        std::fs::create_dir_all(project.join("Packages")).unwrap();
-        std::fs::create_dir_all(&source).unwrap();
-        std::fs::write(
-            source.join("package.json"),
-            r#"{"name":"com.uvibe.os","version":"0.5.2"}"#,
-        )
-        .unwrap();
-
-        assert!(unity_package_needs_install(&project, &source));
-        std::fs::remove_dir_all(&root).ok();
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1133,7 +1037,7 @@ mod tests {
     #[test]
     fn timeout_cleanup_stops_installer_descendants() {
         let marker =
-            std::env::temp_dir().join(format!("unity-vibe-installer-tree-{}", nanoid::nanoid!(10)));
+            std::env::temp_dir().join(format!("godot-vibe-installer-tree-{}", nanoid::nanoid!(10)));
         let mut cmd = Command::new("/bin/sh");
         cmd.args([
             "-c",

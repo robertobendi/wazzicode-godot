@@ -1,6 +1,6 @@
 {
-  "name": "@uvibe/mcp-server",
-  "version": "0.5.2",
+  "name": "@gvibe/mcp-server",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -20,10 +20,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
-    "@uvibe/bridge-client": "workspace:*",
-    "@uvibe/core": "workspace:*",
-    "@uvibe/project-brain": "workspace:*",
-    "@uvibe/safety": "workspace:*",
+    "@gvibe/bridge-client": "workspace:*",
+    "@gvibe/core": "workspace:*",
+    "@gvibe/project-brain": "workspace:*",
+    "@gvibe/safety": "workspace:*",
     "zod": "^3.23.8"
   }
 }

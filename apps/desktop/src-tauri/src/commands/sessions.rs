@@ -2,7 +2,7 @@
 //!
 //! After each completed turn (and on chat reset / project switch) the webview
 //! serializes its conversation and calls [`save_session`], which writes it to
-//! `<project>/.unity-vibe/studio/sessions/<sessionId>.json`. The left rail lists
+//! `<project>/.godot-vibe/studio/sessions/<sessionId>.json`. The left rail lists
 //! them via [`list_sessions`] (a cheap header-only index), opens one with
 //! [`load_session`], and removes one with [`delete_session`].
 //!
@@ -134,7 +134,7 @@ fn delete_session_blocking(project: &str, session_id: &str) -> AppResult<()> {
 // --- helpers ---------------------------------------------------------------
 
 fn sessions_dir(project: &Path) -> PathBuf {
-    project.join(".unity-vibe").join("studio").join("sessions")
+    project.join(".godot-vibe").join("studio").join("sessions")
 }
 
 /// Build the on-disk path for `session_id`, refusing any id that isn't a plain
@@ -194,7 +194,7 @@ mod tests {
     use serde_json::json;
 
     fn tmp_project() -> PathBuf {
-        let d = std::env::temp_dir().join(format!("uvibe-sess-{}", nanoid::nanoid!(8)));
+        let d = std::env::temp_dir().join(format!("gvibe-sess-{}", nanoid::nanoid!(8)));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

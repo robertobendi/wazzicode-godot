@@ -16,14 +16,14 @@ export function mapErrorMessage(
   if (!raw) return null;
   const text = raw.toLowerCase();
 
-  if (text.includes("unity_not_connected")) {
-    return "Unity isn't connected. Open Unity and load your project.";
+  if (text.includes("godot_not_connected")) {
+    return "Godot isn't connected. Open this project in the Godot editor.";
   }
-  if (text.includes("unity_reloading")) {
-    return "Unity is busy recompiling. Give it a moment and try again.";
+  if (text.includes("godot_reloading")) {
+    return "The Godot addon is restarting. Give it a moment and try again.";
   }
   if (text.includes("project_identity_mismatch")) {
-    return "A different Unity project is open. Switch Unity to this project.";
+    return "A different Godot project is open. Switch the editor to this project.";
   }
   if (
     text.includes("invalid api key") ||
@@ -50,17 +50,11 @@ export function friendlyError(
 
 export function screenshotErrorMessage(
   raw: string,
-  view: "game" | "scene" | "selected",
+  view: "2d" | "3d",
 ): string {
   const text = raw.toLowerCase();
-  if (view === "selected" && text.includes("no gameobject is selected")) {
-    return "Select a GameObject in Unity's Hierarchy, then try again.";
+  if (text.includes("capture_unavailable")) {
+    return `Open the ${view.toUpperCase()} workspace in the Godot editor, then try again.`;
   }
-  if (view === "game" && text.includes("no suitable camera")) {
-    return "Add or enable a Camera in the active scene, then try again.";
-  }
-  if (view === "scene" && text.includes("no sceneview is currently open")) {
-    return "Open Unity's Scene view, then try again.";
-  }
-  return friendlyError(raw, `Couldn't capture the ${view} view.`);
+  return friendlyError(raw, `Couldn't capture the ${view.toUpperCase()} viewport.`);
 }

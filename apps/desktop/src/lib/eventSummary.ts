@@ -2,14 +2,14 @@
 // drawer. Handles BOTH backends' vocabularies (see `streamMapper.ts` — the two
 // are disjoint, so the event's own `type` is enough to tell them apart).
 //
-// The drawer exists to answer "what is the agent actually doing to my Unity
+// The drawer exists to answer "what is the agent actually doing to my Godot
 // project, and what broke?" — so the summary leads with the MCP tool call and
 // its outcome, which a raw JSON dump buries.
 
 export type EventLevel = "info" | "text" | "tool" | "error";
 
 export interface EventSummary {
-  /** Short label, e.g. `unity_verify` or `turn.completed`. */
+  /** Short label, e.g. `godot_verify` or `turn.completed`. */
   label: string;
   /** Optional extra context — args, exit code, error text. */
   detail?: string;
@@ -18,7 +18,7 @@ export interface EventSummary {
 
 type Raw = Record<string, any>;
 
-/** Strip the MCP prefix so `mcp__unity-vibe-os__unity_verify` reads `unity_verify`. */
+/** Strip the MCP prefix so `mcp__godot-vibe-os__godot_verify` reads `godot_verify`. */
 function shortToolName(name: string): string {
   return name.replace(/^mcp__[^_]*(?:-[^_]*)*__/, "").replace(/^mcp__/, "");
 }

@@ -5,7 +5,7 @@ import { useStatusStore } from "@/stores/useStatusStore";
 import type { StatusUpdate } from "@/types/status";
 
 /**
- * Drive the Unity bridge status pill for `project`: subscribe to `status:update`
+ * Drive the Godot bridge status pill for `project`: subscribe to `status:update`
  * and run the backend poll loop for this project's lifetime.
  */
 export function useBridgeStatus(project: string | null) {

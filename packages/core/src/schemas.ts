@@ -1,480 +1,270 @@
 import { z } from "zod";
-
-export const Vector3Schema = z.object({
-  x: z.number(),
-  y: z.number(),
-  z: z.number(),
-});
-export type Vector3 = z.infer<typeof Vector3Schema>;
-
-export const TransformSchema = z.object({
-  position: Vector3Schema,
-  rotation: Vector3Schema,
-  localScale: Vector3Schema,
-  worldPosition: Vector3Schema.optional(),
-});
-export type TransformData = z.infer<typeof TransformSchema>;
-
-export const ObjectReferenceSchema = z.object({
-  referenceType: z.enum(["GameObject", "Component", "Asset", "ScriptableObject", "Missing"]),
-  name: z.string().optional(),
-  path: z.string().optional(),
-  guid: z.string().optional(),
-  fileId: z.string().optional(),
-  type: z.string().optional(),
-});
-export type ObjectReference = z.infer<typeof ObjectReferenceSchema>;
+import { BRIDGE_METHODS, type BridgeMethod } from "./protocol.js";
 
 const PrimitiveSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-export const SerializedFieldValueSchema: z.ZodType<unknown> = z.lazy(() =>
-  z.union([
-    PrimitiveSchema,
-    Vector3Schema,
-    ObjectReferenceSchema,
-    z.array(SerializedFieldValueSchema),
-    z.record(z.string(), SerializedFieldValueSchema),
-  ])
+export const VariantSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([PrimitiveSchema, z.array(VariantSchema), z.record(z.string(), VariantSchema)]),
 );
 
-export const ComponentSchema = z.object({
-  type: z.string(),
-  assembly: z.string().optional(),
-  enabled: z.boolean().optional(),
-  fields: z.record(z.string(), SerializedFieldValueSchema).optional(),
-  isMissingScript: z.boolean().optional(),
-  warnings: z.array(z.string()).optional(),
+export const FilesystemStatusSchema = z.object({
+  scanning: z.boolean(),
+  importing: z.boolean(),
+  progress: z.number(),
+  indexedFiles: z.number().int().nonnegative(),
+  requested: z.boolean().optional(),
 });
-export type ComponentData = z.infer<typeof ComponentSchema>;
+export type FilesystemStatus = z.infer<typeof FilesystemStatusSchema>;
 
-export const PrefabInfoSchema = z.object({
-  isPrefabInstance: z.boolean(),
-  isPrefabAsset: z.boolean().optional(),
-  sourcePath: z.string().optional(),
-  sourceGuid: z.string().optional(),
-  hasOverrides: z.boolean().optional(),
+export const SystemHealthResultSchema = z.object({
+  status: z.literal("ok"),
+  godotVersion: z.string(),
+  projectPath: z.string(),
+  uptimeMs: z.number().int().nonnegative(),
+  isPlaying: z.boolean(),
+  filesystemScanning: z.boolean(),
 });
-export type PrefabInfo = z.infer<typeof PrefabInfoSchema>;
+export type SystemHealthResult = z.infer<typeof SystemHealthResultSchema>;
 
-export const GameObjectSchema = z.object({
-  name: z.string(),
-  path: z.string(),
-  instanceId: z.number().int().optional(),
-  activeSelf: z.boolean(),
-  activeInHierarchy: z.boolean(),
-  tag: z.string(),
-  layer: z.string(),
-  scene: z.string().optional(),
-  prefab: PrefabInfoSchema.optional(),
-  transform: TransformSchema,
-  components: z.array(ComponentSchema),
-  warnings: z.array(z.string()).optional(),
+export const ProjectSummarySchema = z.object({
+  engine: z.literal("godot"),
+  godotVersion: z.string(),
+  projectName: z.string(),
+  projectPath: z.string(),
+  platform: z.string(),
+  openSceneCount: z.number().int().nonnegative(),
+  editedScene: z.string(),
+  isPlaying: z.boolean(),
+  filesystem: FilesystemStatusSchema,
 });
-export type GameObjectData = z.infer<typeof GameObjectSchema>;
+export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 
 export const SceneSummarySchema = z.object({
   path: z.string(),
   name: z.string(),
-  isLoaded: z.boolean(),
-  isDirty: z.boolean(),
-  rootCount: z.number().int(),
-  buildIndex: z.number().int(),
+  rootType: z.string(),
+  active: z.boolean(),
+  unsaved: z.boolean(),
 });
-export type SceneSummary = z.infer<typeof SceneSummarySchema>;
-
-export interface SceneHierarchyNode {
-  name: string;
-  path: string;
-  active: boolean;
-  childCount: number;
-  components?: string[];
-  children?: SceneHierarchyNode[];
-  warnings?: string[];
-}
-
-export const SceneHierarchyNodeSchema: z.ZodType<SceneHierarchyNode> = z.lazy(() =>
-  z.object({
-    name: z.string(),
-    path: z.string(),
-    active: z.boolean(),
-    childCount: z.number().int(),
-    components: z.array(z.string()).optional(),
-    children: z.array(SceneHierarchyNodeSchema).optional(),
-    warnings: z.array(z.string()).optional(),
-  })
-);
-
-export const SceneHierarchySchema = z.object({
-  scene: z.string(),
-  roots: z.array(SceneHierarchyNodeSchema),
-  totalObjects: z.number().int().optional(),
-});
-export type SceneHierarchy = z.infer<typeof SceneHierarchySchema>;
-
-export const ConsoleLogSchema = z.object({
-  type: z.enum(["Log", "Warning", "Error", "Assert", "Exception"]),
-  message: z.string(),
-  stackTrace: z.string().optional(),
-  timestamp: z.number(),
-});
-export type ConsoleLog = z.infer<typeof ConsoleLogSchema>;
-
-export const ConsoleLogsResultSchema = z.object({
-  logs: z.array(ConsoleLogSchema),
-  truncated: z.boolean(),
-  bufferSize: z.number().int(),
-  fallback: z.string().optional(),
-});
-export type ConsoleLogsResult = z.infer<typeof ConsoleLogsResultSchema>;
-
-export const CompileErrorSchema = z.object({
-  file: z.string().optional(),
-  line: z.number().int().optional(),
-  column: z.number().int().optional(),
-  message: z.string(),
-  type: z.enum(["error", "warning"]).optional(),
-});
-export type CompileError = z.infer<typeof CompileErrorSchema>;
-
-export const CompileStatusSchema = z.object({
-  isCompiling: z.boolean(),
-  hasErrors: z.boolean(),
-  errorCount: z.number().int(),
-  warningCount: z.number().int(),
-  errors: z.array(CompileErrorSchema).optional(),
-  fallback: z.string().optional(),
-  /** Set by the compile.await long-poll: false means the window closed while still compiling. */
-  settled: z.boolean().optional(),
-});
-export type CompileStatus = z.infer<typeof CompileStatusSchema>;
-
-export const PackageRefSchema = z.object({
-  name: z.string(),
-  version: z.string(),
-});
-export type PackageRef = z.infer<typeof PackageRefSchema>;
-
-export const ProjectSummarySchema = z.object({
-  unityVersion: z.string(),
-  projectPath: z.string(),
-  productName: z.string().optional(),
-  companyName: z.string().optional(),
-  bundleIdentifier: z.string().optional(),
-  renderPipeline: z.string().optional(),
-  inputSystem: z.string().optional(),
-  scriptingBackend: z.string().optional(),
-  buildTarget: z.string().optional(),
-  packages: z.array(PackageRefSchema).optional(),
-});
-export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
-
-export const SelectionInspectResultSchema = z.object({
-  hasSelection: z.boolean(),
-  selected: GameObjectSchema.optional(),
-});
-export type SelectionInspectResult = z.infer<typeof SelectionInspectResultSchema>;
-
 export const OpenScenesResultSchema = z.object({
   scenes: z.array(SceneSummarySchema),
-  activeScene: z.string().optional(),
+  count: z.number().int().nonnegative(),
+  activeScene: z.string(),
 });
 export type OpenScenesResult = z.infer<typeof OpenScenesResultSchema>;
 
-export const ScreenshotSourceSchema = z.enum([
-  "game_view",
-  "scene_view",
-  "selected_object",
-  "editor_window",
-]);
-export type ScreenshotSource = z.infer<typeof ScreenshotSourceSchema>;
+export const GodotPropertySchema = z.object({
+  name: z.string(),
+  type: z.number().int(),
+  typeName: z.string(),
+  hint: z.number().int(),
+  hintString: z.string(),
+  value: VariantSchema,
+});
+
+export interface SceneTreeNode {
+  name: string;
+  type: string;
+  path: string;
+  sceneFilePath: string;
+  ownerPath: string;
+  childCount: number;
+  instanceId: number;
+  properties?: z.infer<typeof GodotPropertySchema>[];
+  children: SceneTreeNode[];
+}
+export const SceneTreeNodeSchema: z.ZodType<SceneTreeNode> = z.object({
+  name: z.string(),
+  type: z.string(),
+  path: z.string(),
+  sceneFilePath: z.string(),
+  ownerPath: z.string(),
+  childCount: z.number().int().nonnegative(),
+  instanceId: z.number().int(),
+  properties: z.array(GodotPropertySchema).optional(),
+  children: z.array(z.lazy(() => SceneTreeNodeSchema)),
+});
+export const SceneTreeResultSchema = z.object({
+  scenePath: z.string(),
+  root: SceneTreeNodeSchema.nullable(),
+  nodeCount: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+export type SceneTreeResult = z.infer<typeof SceneTreeResultSchema>;
+
+export const GodotNodeSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  path: z.string(),
+  sceneFilePath: z.string(),
+  ownerPath: z.string(),
+  childCount: z.number().int().nonnegative(),
+  instanceId: z.number().int(),
+  properties: z.array(GodotPropertySchema).optional(),
+});
+export const SelectionInspectResultSchema = z.object({
+  nodes: z.array(GodotNodeSchema),
+  count: z.number().int().nonnegative(),
+});
+export type SelectionInspectResult = z.infer<typeof SelectionInspectResultSchema>;
+
+export const FilesystemScanResultSchema = FilesystemStatusSchema.extend({
+  requested: z.literal(true),
+});
+export type FilesystemScanResult = z.infer<typeof FilesystemScanResultSchema>;
+
+export const ResourceDependencyResultSchema = z.object({
+  path: z.string(),
+  dependencies: z.array(z.object({
+    path: z.string(),
+    type: z.string(),
+    uid: z.string(),
+    raw: z.string(),
+  })),
+  count: z.number().int().nonnegative(),
+});
+export type ResourceDependencyResult = z.infer<typeof ResourceDependencyResultSchema>;
+
+export const ReflectionResultSchema = z.object({
+  query: z.string(),
+  classes: z.array(z.object({
+    name: z.string(),
+    parent: z.string(),
+    instantiable: z.boolean(),
+    properties: z.array(z.record(z.string(), VariantSchema)).optional(),
+    methods: z.array(z.record(z.string(), VariantSchema)).optional(),
+    signals: z.array(z.record(z.string(), VariantSchema)).optional(),
+  })),
+  count: z.number().int().nonnegative(),
+  truncated: z.boolean().optional(),
+});
+export type ReflectionResult = z.infer<typeof ReflectionResultSchema>;
 
 export const ScreenshotResultSchema = z.object({
-  source: ScreenshotSourceSchema,
+  kind: z.enum(["2d", "3d"]),
+  mimeType: z.literal("image/png"),
+  pngBase64: z.string().min(1),
+  path: z.string(),
+  absolutePath: z.string(),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
-  mimeType: z.enum(["image/png", "image/jpeg"]),
-  /** base64-encoded image bytes (without the data: URL prefix). Historical name — the bytes
-   *  are JPEG when mimeType says so. */
-  pngBase64: z.string().min(1),
-  /** Absolute path of the auto-saved PNG, when persisted to .unity-vibe/screenshots/. */
-  savedTo: z.string().optional(),
-  /** Human-readable description of what was captured (camera name, object path, etc.). */
-  subject: z.string().optional(),
-  /** Camera used to capture, if applicable. */
-  cameraName: z.string().optional(),
+  bytes: z.number().int().positive(),
 });
 export type ScreenshotResult = z.infer<typeof ScreenshotResultSchema>;
 
-// ----- Performance probes -----
+export const Screenshot2DResultSchema = ScreenshotResultSchema.extend({ kind: z.literal("2d") });
+export const Screenshot3DResultSchema = ScreenshotResultSchema.extend({ kind: z.literal("3d") });
 
-export const PerfCounterSchema = z.object({
-  name: z.string(),
-  /** Profiler category, e.g. "Render", "Memory", "Internal". */
-  category: z.string().optional(),
-  /** Rolling average across the sampled frames. */
-  average: z.number(),
-  last: z.number().optional(),
-  min: z.number().optional(),
-  max: z.number().optional(),
-  /** "ns", "bytes", "count", etc. */
-  unit: z.string().optional(),
-  /** Number of frame samples that backed this average. */
-  sampleCount: z.number().int().optional(),
-});
-export type PerfCounter = z.infer<typeof PerfCounterSchema>;
-
-export const PerfSampleResultSchema = z.object({
-  /** Recorders only advance while frames render; richest data is in play mode. */
-  isPlaying: z.boolean(),
-  /** True the very first time recorders are read (buffers not yet primed). */
-  warmingUp: z.boolean().optional(),
-  /** Derived FPS estimate from the main-thread counter, when available. */
-  estimatedFps: z.number().optional(),
-  /** Main-thread frame time in milliseconds, when available. */
-  mainThreadMs: z.number().optional(),
-  counters: z.array(PerfCounterSchema),
-  fallback: z.string().optional(),
-});
-export type PerfSampleResult = z.infer<typeof PerfSampleResultSchema>;
-
-// ----- Test runner -----
-
-export const TestModeSchema = z.enum(["EditMode", "PlayMode"]);
-export type TestMode = z.infer<typeof TestModeSchema>;
-
-export const TestCaseResultSchema = z.object({
-  name: z.string(),
-  fullName: z.string().optional(),
-  status: z.enum(["Passed", "Failed", "Skipped", "Inconclusive"]),
-  durationSec: z.number().optional(),
-  message: z.string().optional(),
-  stackTrace: z.string().optional(),
-});
-export type TestCaseResult = z.infer<typeof TestCaseResultSchema>;
-
-export const TestRunStatusSchema = z.object({
-  runId: z.string(),
-  /** Lifecycle of the async run; survives domain reloads triggered by PlayMode tests. */
-  state: z.enum(["running", "completed", "cancelled", "not_found"]),
-  mode: TestModeSchema.optional(),
-  total: z.number().int().optional(),
-  passed: z.number().int().optional(),
-  failed: z.number().int().optional(),
-  skipped: z.number().int().optional(),
-  durationSec: z.number().optional(),
-  results: z.array(TestCaseResultSchema).optional(),
-  startedAt: z.number().optional(),
-  finishedAt: z.number().optional(),
-  /** Set by the test.await long-poll: false means the window closed while still running. */
-  settled: z.boolean().optional(),
-});
-export type TestRunStatus = z.infer<typeof TestRunStatusSchema>;
-
-// ----- Play mode + runtime inspection -----
-
-export const PlayModeStatusSchema = z.object({
-  isPlaying: z.boolean(),
-  isPaused: z.boolean(),
-  /** Runtime speed multiplier. Available on bridges with play-mode configuration support. */
-  timeScale: z.number().optional(),
-  /** True during the play-mode enter transition (domain reload in flight). */
-  isTransitioning: z.boolean().optional(),
-  /** Editor frame count, useful to confirm step/frame advances took effect. */
-  frameCount: z.number().int().optional(),
-  timeSinceLevelLoad: z.number().optional(),
-  /** Set by playmode.await/playmode.step long-polls: false means the window closed first. */
-  settled: z.boolean().optional(),
-  /** Frames actually advanced by a multi-frame playmode.step (absent on older bridges). */
-  framesStepped: z.number().int().optional(),
-  /** True while a multi-frame step is still draining. */
-  stepping: z.boolean().optional(),
-});
-export type PlayModeStatus = z.infer<typeof PlayModeStatusSchema>;
-
-export const RuntimeObjectRefSchema = z.object({
-  name: z.string(),
+export const SceneOpenResultSchema = z.object({
   path: z.string(),
-  instanceId: z.number().int(),
-  activeInHierarchy: z.boolean().optional(),
-  components: z.array(z.string()).optional(),
+  opened: z.literal(true),
 });
-export type RuntimeObjectRef = z.infer<typeof RuntimeObjectRefSchema>;
+export type SceneOpenResult = z.infer<typeof SceneOpenResultSchema>;
 
-export const RuntimeFindResultSchema = z.object({
-  isPlaying: z.boolean(),
-  query: z.string().optional(),
-  matchCount: z.number().int(),
-  objects: z.array(RuntimeObjectRefSchema),
-  truncated: z.boolean().optional(),
-});
-export type RuntimeFindResult = z.infer<typeof RuntimeFindResultSchema>;
-
-export const RuntimeMutationResultSchema = z.object({
-  applied: z.boolean(),
-  changed: z.boolean().optional(),
-  summary: z.string(),
-  target: z.string(),
-  runtimeOnly: z.boolean(),
-  undoable: z.boolean(),
-});
-export type RuntimeMutationResult = z.infer<typeof RuntimeMutationResultSchema>;
-
-// ----- Build readiness -----
-
-export const BuildSettingsSceneSchema = z.object({
+export const SceneSaveResultSchema = z.object({
   path: z.string(),
-  enabled: z.boolean(),
-  guid: z.string().optional(),
-  exists: z.boolean(),
+  saved: z.boolean(),
 });
-export type BuildSettingsScene = z.infer<typeof BuildSettingsSceneSchema>;
+export type SceneSaveResult = z.infer<typeof SceneSaveResultSchema>;
 
-export const BuildSettingsResultSchema = z.object({
-  valid: z.boolean(),
-  activeBuildTarget: z.string(),
-  buildTargetGroup: z.string(),
-  targetSupported: z.boolean(),
-  developmentBuild: z.boolean(),
-  enabledSceneCount: z.number().int().nonnegative(),
-  scenes: z.array(BuildSettingsSceneSchema),
-  issues: z.array(z.string()),
+export const EditSetPropertyResultSchema = z.object({
+  nodePath: z.string(),
+  property: z.string(),
+  previous: VariantSchema,
+  value: VariantSchema,
 });
-export type BuildSettingsResult = z.infer<typeof BuildSettingsResultSchema>;
+export type EditSetPropertyResult = z.infer<typeof EditSetPropertyResultSchema>;
 
-// ----- Asset / reference graph -----
+export const EditCreateNodeResultSchema = GodotNodeSchema;
+export type EditCreateNodeResult = z.infer<typeof EditCreateNodeResultSchema>;
 
-export const AssetRefSchema = z.object({
-  path: z.string(),
-  guid: z.string().optional(),
-  type: z.string().optional(),
+export const EditDeleteNodeResultSchema = z.object({
+  nodePath: z.string(),
+  deleted: z.boolean(),
 });
-export type AssetRef = z.infer<typeof AssetRefSchema>;
+export type EditDeleteNodeResult = z.infer<typeof EditDeleteNodeResultSchema>;
 
-export const MissingScriptHitSchema = z.object({
-  assetPath: z.string(),
-  objectPath: z.string(),
-  missingCount: z.number().int(),
+export const EditReparentNodeResultSchema = z.object({
+  nodePath: z.string(),
+  parentPath: z.string(),
 });
-export type MissingScriptHit = z.infer<typeof MissingScriptHitSchema>;
+export type EditReparentNodeResult = z.infer<typeof EditReparentNodeResultSchema>;
 
-export const MissingReferenceHitSchema = z.object({
-  assetPath: z.string(),
-  objectPath: z.string(),
-  component: z.string(),
-  field: z.string(),
+export const EditInstantiateSceneResultSchema = GodotNodeSchema.extend({
+  sourceScene: z.string(),
 });
-export type MissingReferenceHit = z.infer<typeof MissingReferenceHitSchema>;
+export type EditInstantiateSceneResult = z.infer<typeof EditInstantiateSceneResultSchema>;
 
-export const MissingScriptsResultSchema = z.object({
-  scanned: z.number().int(),
-  hits: z.array(MissingScriptHitSchema),
-  truncated: z.boolean().optional(),
+export const PlayStatusSchema = z.object({
+  playing: z.boolean(),
+  scenePath: z.string(),
+  started: z.boolean().optional(),
+  stopped: z.boolean().optional(),
+  requestedMode: z.string().optional(),
 });
-export type MissingScriptsResult = z.infer<typeof MissingScriptsResultSchema>;
+export type PlayStatus = z.infer<typeof PlayStatusSchema>;
 
-export const MissingReferencesResultSchema = z.object({
-  scanned: z.number().int(),
-  hits: z.array(MissingReferenceHitSchema),
-  truncated: z.boolean().optional(),
+export const PlayRunResultSchema = PlayStatusSchema.extend({
+  started: z.boolean(),
+  requestedMode: z.enum(["current", "main", "custom"]).optional(),
 });
-export type MissingReferencesResult = z.infer<typeof MissingReferencesResultSchema>;
+export const PlayStopResultSchema = PlayStatusSchema.extend({ stopped: z.boolean() });
 
-export const AssetDependencyResultSchema = z.object({
-  /** The asset whose graph was queried. */
-  asset: AssetRefSchema,
-  /** "dependencies" = assets this one uses; "references" = assets that use this one. */
-  direction: z.enum(["dependencies", "references"]),
-  recursive: z.boolean().optional(),
-  count: z.number().int(),
-  assets: z.array(AssetRefSchema),
-  truncated: z.boolean().optional(),
-});
-export type AssetDependencyResult = z.infer<typeof AssetDependencyResultSchema>;
-
-// ----- Write operations -----
-
-export const EditResultSchema = z.object({
-  applied: z.boolean(),
-  /** What changed, human-readable, suitable for an action-log note. */
-  summary: z.string(),
-  /** Object affected, when applicable. */
-  target: z.string().optional(),
-  /** Path of the GameObject/asset created, when applicable. */
-  createdPath: z.string().optional(),
-  /** Scene marked dirty by this edit (caller may want to save). */
-  sceneDirtied: z.string().optional(),
-  /** Whether a Unity Undo entry was recorded (so the user can Ctrl+Z). */
-  undoable: z.boolean().optional(),
-});
-export type EditResult = z.infer<typeof EditResultSchema>;
-
-// ----- C# script editing -----
+export const BridgeResultSchemas = {
+  [BRIDGE_METHODS.systemHealth]: SystemHealthResultSchema,
+  [BRIDGE_METHODS.systemSummary]: ProjectSummarySchema,
+  [BRIDGE_METHODS.sceneGetOpenScenes]: OpenScenesResultSchema,
+  [BRIDGE_METHODS.sceneGetTree]: SceneTreeResultSchema,
+  [BRIDGE_METHODS.selectionInspect]: SelectionInspectResultSchema,
+  [BRIDGE_METHODS.filesystemStatus]: FilesystemStatusSchema,
+  [BRIDGE_METHODS.filesystemScan]: FilesystemScanResultSchema,
+  [BRIDGE_METHODS.resourceGetDependencies]: ResourceDependencyResultSchema,
+  [BRIDGE_METHODS.reflectQuery]: ReflectionResultSchema,
+  [BRIDGE_METHODS.viewportCapture2D]: Screenshot2DResultSchema,
+  [BRIDGE_METHODS.viewportCapture3D]: Screenshot3DResultSchema,
+  [BRIDGE_METHODS.sceneOpen]: SceneOpenResultSchema,
+  [BRIDGE_METHODS.sceneSave]: SceneSaveResultSchema,
+  [BRIDGE_METHODS.editSetProperty]: EditSetPropertyResultSchema,
+  [BRIDGE_METHODS.editCreateNode]: EditCreateNodeResultSchema,
+  [BRIDGE_METHODS.editDeleteNode]: EditDeleteNodeResultSchema,
+  [BRIDGE_METHODS.editReparentNode]: EditReparentNodeResultSchema,
+  [BRIDGE_METHODS.editInstantiateScene]: EditInstantiateSceneResultSchema,
+  [BRIDGE_METHODS.playRun]: PlayRunResultSchema,
+  [BRIDGE_METHODS.playStop]: PlayStopResultSchema,
+  [BRIDGE_METHODS.playStatus]: PlayStatusSchema,
+} satisfies Record<BridgeMethod, z.ZodTypeAny>;
 
 export const ScriptReadResultSchema = z.object({
-  path: z.string(),
-  contents: z.string(),
-  /** SHA-256 of the file's UTF-8 bytes; pass back as a precondition to guard against races. */
-  sha256: z.string(),
-  lineCount: z.number().int(),
-  sizeBytes: z.number().int(),
-  /** True when contents were clipped to a requested line window. */
-  truncated: z.boolean().optional(),
+  path: z.string(), contents: z.string(), sha256: z.string(), lineCount: z.number().int(),
+  sizeBytes: z.number().int(), truncated: z.boolean().optional(),
 });
 export type ScriptReadResult = z.infer<typeof ScriptReadResultSchema>;
-
 export const ScriptShaResultSchema = z.object({
-  path: z.string(),
-  exists: z.boolean(),
-  sha256: z.string(),
-  sizeBytes: z.number().int(),
-  lineCount: z.number().int(),
+  path: z.string(), exists: z.boolean(), sha256: z.string(), sizeBytes: z.number().int(), lineCount: z.number().int(),
 });
 export type ScriptShaResult = z.infer<typeof ScriptShaResultSchema>;
-
-export const ScriptFindMatchSchema = z.object({
-  line: z.number().int(),
-  column: z.number().int(),
-  match: z.string(),
-  lineText: z.string(),
-});
 export const ScriptFindResultSchema = z.object({
-  path: z.string(),
-  pattern: z.string(),
-  matchCount: z.number().int(),
-  matches: z.array(ScriptFindMatchSchema),
-  truncated: z.boolean().optional(),
+  path: z.string(), pattern: z.string(), matchCount: z.number().int(), truncated: z.boolean().optional(),
+  matches: z.array(z.object({ line: z.number().int(), column: z.number().int(), match: z.string(), lineText: z.string() })),
 });
 export type ScriptFindResult = z.infer<typeof ScriptFindResultSchema>;
-
 export const ScriptEditResultSchema = z.object({
-  applied: z.boolean(),
-  summary: z.string(),
-  path: z.string(),
-  /** SHA of the file before/after the edit; lets a caller confirm what actually changed. */
-  sha256Before: z.string().optional(),
-  sha256After: z.string().optional(),
-  /** False when a no-op (e.g. preview, or new == old). */
-  changed: z.boolean().optional(),
-  /** Number of discrete edits applied. */
-  editCount: z.number().int().optional(),
-  /** Unified diff, when preview mode is requested (no write performed). */
-  diff: z.string().optional(),
-  createdPath: z.string().optional(),
-  undoable: z.boolean().optional(),
+  applied: z.boolean(), changed: z.boolean(), summary: z.string(), path: z.string(),
+  sha256Before: z.string().optional(), sha256After: z.string().optional(), editCount: z.number().int().optional(),
+  diff: z.string().optional(), createdPath: z.string().optional(), undoable: z.literal(false),
 });
 export type ScriptEditResult = z.infer<typeof ScriptEditResultSchema>;
 
-// ----- In-Editor C# execution -----
-
-export const CodeExecResultSchema = z.object({
-  compiled: z.boolean(),
-  executed: z.boolean(),
-  errorCount: z.number().int(),
-  errors: z.array(z.object({ line: z.number().int(), number: z.string().optional(), message: z.string() })).optional(),
-  warnings: z.array(z.object({ line: z.number().int(), number: z.string().optional(), message: z.string() })).optional(),
-  returnType: z.string().optional(),
-  returnValue: z.string().nullable().optional(),
-  logs: z.array(z.object({ type: z.string(), message: z.string() })).optional(),
-  runtimeError: z.string().optional(),
-  summary: z.string(),
+export const VerifyResultSchema = z.object({
+  verdict: z.enum(["pass", "fail", "unverified"]),
+  import: z.object({ ok: z.boolean(), command: z.string(), exitCode: z.number().int(), output: z.string() }),
+  scripts: z.object({ checked: z.number().int(), failed: z.number().int(), failures: z.array(z.object({ path: z.string(), output: z.string() })) }),
+  csharp: z.object({
+    status: z.enum(["not_present", "unverified"]),
+    scripts: z.number().int().nonnegative(),
+    projects: z.number().int().nonnegative(),
+    message: z.string(),
+  }),
+  tests: z.object({ status: z.literal("not_configured"), message: z.string() }),
+  warnings: z.array(z.string()),
 });
-export type CodeExecResult = z.infer<typeof CodeExecResultSchema>;
+export type VerifyResult = z.infer<typeof VerifyResultSchema>;

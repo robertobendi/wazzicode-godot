@@ -3,7 +3,7 @@ import { useLiveScreenshot } from "@/hooks/useLiveScreenshot";
 import { RefreshIcon } from "@/components/shell/icons";
 import type { BridgeState } from "@/types/status";
 
-/** Latest Unity Game, Scene, or selected-object view. */
+/** Latest Godot 2D or 3D editor viewport. */
 export default function LiveScreenshot({
   project,
   bridgeState,
@@ -22,7 +22,7 @@ export default function LiveScreenshot({
     <div className="border-b border-white/5 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-medium uppercase tracking-wide text-fg-dim">
-          Unity view
+          Godot viewport
         </span>
         <div className="flex items-center gap-1.5">
           <div
@@ -30,7 +30,7 @@ export default function LiveScreenshot({
             aria-label="Screenshot view"
             className="flex rounded-md border border-white/10 bg-black/20 p-0.5"
           >
-            {(["game", "scene", "selected"] as const).map((option) => (
+            {(["2d", "3d"] as const).map((option) => (
               <button
                 key={option}
                 type="button"
@@ -90,17 +90,17 @@ function Placeholder({
 }: {
   bridgeState: BridgeState;
   error: string | null;
-  view: "Game" | "Scene" | "Selected";
+  view: "2D" | "3D";
 }) {
   const text = error
     ? error
     : bridgeState === "connected"
       ? `Press refresh to see the ${view} view.`
       : bridgeState === "reloading"
-        ? "Unity is reloading scripts. Capture will resume when it reconnects."
+        ? "The Godot addon is restarting. Capture will resume when it reconnects."
         : bridgeState === "identity_mismatch"
-          ? "A different Unity project is open. Open this project to capture it."
-          : `Open Unity to see the ${view} view here.`;
+          ? "A different Godot project is open. Open this project to capture it."
+          : `Open this project in Godot to see the ${view} viewport here.`;
   return (
     <div className="flex h-full items-center justify-center px-4 text-center text-xs text-fg-dim">
       {text}
@@ -108,7 +108,6 @@ function Placeholder({
   );
 }
 
-function viewName(kind: "game" | "scene" | "selected") {
-  if (kind === "game") return "Game";
-  return kind === "scene" ? "Scene" : "Selected";
+function viewName(kind: "2d" | "3d") {
+  return kind.toUpperCase() as "2D" | "3D";
 }

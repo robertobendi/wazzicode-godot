@@ -2,7 +2,7 @@
 //!
 //! The app ships three built-in actions (mirrored in `src/lib/quickActions.ts`
 //! for instant, offline rendering). A studio can override them per-project by
-//! dropping a `<project>/.unity-vibe/quick_actions.json` file — an array of
+//! dropping a `<project>/.godot-vibe/quick_actions.json` file — an array of
 //! `{label, prompt}` — which REPLACES the defaults. Parsing is tolerant: a
 //! missing file returns the defaults, and a malformed / partially-invalid file
 //! logs a warning and also falls back to the defaults.
@@ -23,16 +23,16 @@ pub struct QuickAction {
 fn default_quick_actions() -> Vec<QuickAction> {
     vec![
         QuickAction {
-            label: "Fix whatever's broken".into(),
-            prompt: "Run unity_qa, fix every actionable failure it finds, then rerun the full gate until it passes.".into(),
+            label: "Verify the project".into(),
+            prompt: "Run godot_verify, fix every import or GDScript failure it finds, and rerun it until it passes. If tests are not configured, say so plainly instead of claiming they ran.".into(),
         },
         QuickAction {
-            label: "Screenshot tour".into(),
-            prompt: "Open each scene in the project, capture a game-view screenshot of each, and summarize what's in them.".into(),
+            label: "Map the active scene".into(),
+            prompt: "Inspect the open scenes and active scene tree, then explain the important node branches, attached scripts, and resource dependencies.".into(),
         },
         QuickAction {
-            label: "Tidy the scene".into(),
-            prompt: "Look at the current scene hierarchy and tidy it: group loose objects under sensible parents, fix obvious naming, and report what you changed.".into(),
+            label: "Improve what I selected".into(),
+            prompt: "Inspect the selected Godot node and the relevant 2D or 3D viewport. Improve the selection for clarity and maintainability, preserve intentional behavior, save the scene, and show what changed.".into(),
         },
     ]
 }
@@ -48,7 +48,7 @@ pub async fn read_quick_actions(project: String) -> Result<Vec<QuickAction>, App
 
 fn read_quick_actions_blocking(project: &str) -> Vec<QuickAction> {
     let path = Path::new(project)
-        .join(".unity-vibe")
+        .join(".godot-vibe")
         .join("quick_actions.json");
     let Ok(raw) = std::fs::read_to_string(&path) else {
         // No override file — the common case.
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn read_falls_back_to_defaults_without_file() {
-        let project = std::env::temp_dir().join(format!("uvibe-qa-{}", nanoid::nanoid!(8)));
+        let project = std::env::temp_dir().join(format!("gvibe-qa-{}", nanoid::nanoid!(8)));
         std::fs::create_dir_all(&project).unwrap();
         let actions = read_quick_actions_blocking(project.to_str().unwrap());
         assert_eq!(actions.len(), 3);
@@ -123,8 +123,8 @@ mod tests {
 
     #[test]
     fn read_uses_override_when_present() {
-        let project = std::env::temp_dir().join(format!("uvibe-qa-{}", nanoid::nanoid!(8)));
-        let dir = project.join(".unity-vibe");
+        let project = std::env::temp_dir().join(format!("gvibe-qa-{}", nanoid::nanoid!(8)));
+        let dir = project.join(".godot-vibe");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("quick_actions.json"),

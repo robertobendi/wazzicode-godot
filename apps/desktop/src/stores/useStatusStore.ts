@@ -8,7 +8,7 @@ interface StatusState {
 
 const INITIAL: StatusUpdate = {
   state: "disconnected",
-  compiling: false,
+  importing: false,
   playMode: false,
   friendly: "Connecting…",
 };

@@ -1,4 +1,4 @@
-//! Unity diagnostics for the human-facing Activity panel.
+//! Live, source-backed Godot editor status for the activity panel.
 
 use crate::bridge;
 use crate::error::{AppError, AppResult};
@@ -9,98 +9,81 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UnityDiagnosticsSnapshot {
-    pub compile: CompileStatus,
-    pub console: ConsoleResult,
-    pub play_mode: PlayModeStatus,
+pub struct GodotDiagnosticsSnapshot {
+    pub filesystem: FilesystemStatus,
+    pub scenes: OpenScenes,
+    pub play: PlayStatus,
+    pub tests: TestStatus,
     pub captured_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CompileStatus {
-    pub is_compiling: bool,
-    pub has_errors: bool,
-    pub error_count: u64,
-    pub warning_count: u64,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub errors: Vec<CompileProblem>,
+pub struct FilesystemStatus {
+    pub scanning: bool,
+    pub importing: bool,
+    pub progress: f64,
+    pub indexed_files: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CompileProblem {
+pub struct OpenScenes {
+    #[serde(default)]
+    pub scenes: Vec<SceneSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
+    pub active_scene: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneSummary {
+    pub path: String,
+    pub name: String,
+    #[serde(alias = "active")]
+    pub is_active: bool,
+    #[serde(default, alias = "unsaved")]
+    pub is_unsaved: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub line: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub column: Option<u64>,
+    pub root_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayStatus {
+    #[serde(alias = "isPlaying")]
+    pub playing: bool,
+    #[serde(default, alias = "scene", skip_serializing_if = "Option::is_none")]
+    pub scene_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestStatus {
+    pub status: String,
     pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConsoleResult {
-    #[serde(default)]
-    pub logs: Vec<ConsoleEntry>,
-    #[serde(default)]
-    pub truncated: bool,
-    #[serde(default)]
-    pub buffer_size: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConsoleEntry {
-    pub r#type: String,
-    pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stack_trace: Option<String>,
-    pub timestamp: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlayModeStatus {
-    pub is_playing: bool,
-    pub is_paused: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_scale: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub frame_count: Option<u64>,
 }
 
 #[tauri::command]
-pub async fn unity_diagnostics(project: String) -> AppResult<UnityDiagnosticsSnapshot> {
+pub async fn godot_diagnostics(project: String) -> AppResult<GodotDiagnosticsSnapshot> {
     read_snapshot(Path::new(&project)).await
 }
 
-#[tauri::command]
-pub async fn unity_clear_console(project: String) -> AppResult<()> {
-    let project = Path::new(&project);
-    bridge::call(project, "system.health", serde_json::json!({})).await?;
-    bridge::call(project, "console.clear", serde_json::json!({})).await?;
-    Ok(())
-}
-
-async fn read_snapshot(project: &Path) -> AppResult<UnityDiagnosticsSnapshot> {
-    let (compile, console, play_mode) = tokio::try_join!(
-        call_typed(project, "compile.status", serde_json::json!({})),
-        call_typed(
-            project,
-            "console.getLogs",
-            serde_json::json!({ "level": "all", "limit": 500 })
-        ),
-        call_typed(project, "playmode.status", serde_json::json!({})),
+async fn read_snapshot(project: &Path) -> AppResult<GodotDiagnosticsSnapshot> {
+    let (filesystem, scenes, play) = tokio::try_join!(
+        call_typed(project, "filesystem.status", serde_json::json!({})),
+        call_typed(project, "scene.getOpenScenes", serde_json::json!({})),
+        call_typed(project, "play.status", serde_json::json!({})),
     )?;
 
-    Ok(UnityDiagnosticsSnapshot {
-        compile,
-        console,
-        play_mode,
+    Ok(GodotDiagnosticsSnapshot {
+        filesystem,
+        scenes,
+        play,
+        tests: TestStatus {
+            status: "not_configured".into(),
+            message: "No Godot test runner is configured for this project.".into(),
+        },
         captured_at: now_ms(),
     })
 }
@@ -127,27 +110,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn diagnostics_shape_deserializes_bridge_payloads() {
-        let compile: CompileStatus = serde_json::from_value(serde_json::json!({
-            "isCompiling": false,
-            "hasErrors": true,
-            "errorCount": 1,
-            "warningCount": 2,
-            "errors": [{ "file": "Assets/Player.cs", "line": 7, "column": 4, "message": "CS1002", "type": "error" }]
+    fn diagnostics_shapes_match_the_addon_contract() {
+        let filesystem: FilesystemStatus = serde_json::from_value(serde_json::json!({
+            "scanning": false,
+            "importing": true,
+            "progress": 0.7,
+            "indexedFiles": 42
         }))
         .unwrap();
-        assert!(compile.has_errors);
-        assert_eq!(compile.errors[0].line, Some(7));
+        assert!(filesystem.importing);
+        assert_eq!(filesystem.indexed_files, 42);
 
-        let console: ConsoleResult = serde_json::from_value(serde_json::json!({
-            "logs": [{ "type": "Exception", "message": "boom", "stackTrace": "at Player.Start()", "timestamp": 10 }],
-            "truncated": false,
-            "bufferSize": 1
+        let scenes: OpenScenes = serde_json::from_value(serde_json::json!({
+            "scenes": [{
+                "path": "res://levels/intro.tscn",
+                "name": "Intro",
+                "rootType": "Node2D",
+                "active": true,
+                "unsaved": true
+            }],
+            "count": 1,
+            "activeScene": "res://levels/intro.tscn"
         }))
         .unwrap();
-        assert_eq!(
-            console.logs[0].stack_trace.as_deref(),
-            Some("at Player.Start()")
-        );
+        assert!(scenes.scenes[0].is_active);
+        assert!(scenes.scenes[0].is_unsaved);
+
+        let play: PlayStatus = serde_json::from_value(serde_json::json!({
+            "playing": true,
+            "scenePath": "res://levels/intro.tscn"
+        }))
+        .unwrap();
+        assert!(play.playing);
+        assert_eq!(play.scene_path.as_deref(), Some("res://levels/intro.tscn"));
     }
 }

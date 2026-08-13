@@ -73,7 +73,7 @@ export default function App() {
       error: null,
     });
     void api
-      .validateUnityProject(project)
+      .validateGodotProject(project)
       .then((info) => {
         if (alive) {
           setProjectReadiness({
@@ -123,7 +123,7 @@ export default function App() {
     if (project) void hydrateLoop(project);
   }, [project, hydrateLoop]);
 
-  // Poll the Unity bridge whenever a project is open; capture raw debug events;
+  // Poll the Godot bridge whenever a project is open; capture raw debug events;
   // mirror the auto-loop broadcasts (kept mounted in both modes).
   useBridgeStatus(project);
   useAgentStream();
@@ -205,7 +205,7 @@ export default function App() {
           projectReadiness.error ??
           (projectReadiness.info?.ok
             ? null
-            : "The selected folder is no longer a valid Unity project.")
+            : "The selected folder is no longer a valid Godot project.")
         }
         onOpened={(info) =>
           setProjectReadiness({

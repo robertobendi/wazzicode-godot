@@ -33,7 +33,7 @@ export default function RevertControl() {
     try {
       await revert(proj);
       setConfirming(false);
-      showToast("Restored ✓ Unity will reload the files.");
+      showToast("Restored ✓ Godot will reload the files.");
       appendNotice(
         "Undid the last change — the project is back to how it was before.",
       );

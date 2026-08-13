@@ -36,10 +36,10 @@ pub enum ThemeChoice {
 pub struct Settings {
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
-    /// Recently opened Unity project paths, most-recent-first.
+    /// Recently opened Godot project paths, most-recent-first.
     #[serde(default)]
     pub recent_projects: Vec<String>,
-    /// The Unity project currently in focus, if any.
+    /// The Godot project currently in focus, if any.
     #[serde(default)]
     pub current_project: Option<String>,
     /// Which coding agent drives runs. Defaults to Claude, so an existing

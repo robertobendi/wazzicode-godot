@@ -3,7 +3,7 @@ import { useStatusStore } from "@/stores/useStatusStore";
 import { formatTokens } from "@/lib/formatTokens";
 import type { BridgeState } from "@/types/status";
 
-/** Bottom bar: Unity connection pill + running session cost (or tokens, on a
+/** Bottom bar: Godot connection pill + running session cost (or tokens, on a
  *  backend that doesn't price its turns — see `formatTokens`). */
 export default function StatusBar() {
   const status = useStatusStore((s) => s.status);
@@ -11,8 +11,8 @@ export default function StatusBar() {
   const totalCost = useChatStore((s) => s.session.totalCostUsd);
   const totalTokens = useChatStore((s) => s.session.totalTokens);
 
-  const label = status.compiling
-    ? "Unity is recompiling — hang on…"
+  const label = status.importing
+    ? "Godot is importing resources…"
     : status.playMode
       ? "Playing"
       : status.state === "connected" && !running

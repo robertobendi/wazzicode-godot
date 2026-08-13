@@ -7,7 +7,7 @@ import type { SessionIndexEntry, SessionPayload } from "@/types/session";
 
 /**
  * Session history. Chats are persisted per-project under
- * `.unity-vibe/studio/sessions/`; this store mirrors the lightweight index the
+ * `.godot-vibe/studio/sessions/`; this store mirrors the lightweight index the
  * left rail renders and drives save / open / delete. The Rust side owns the
  * files ([`commands/sessions.rs`]); resume works because loading a session sets
  * the chat store's `sessionId`, which the next `send` passes to `--resume`.

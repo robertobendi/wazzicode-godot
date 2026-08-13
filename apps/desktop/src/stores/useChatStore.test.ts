@@ -265,7 +265,7 @@ describe("chat run snapshots", () => {
     const id = useChatStore.getState().enqueue("Review this", [
       {
         id: "attachment-1",
-        path: "/project/.unity-vibe/inbox/review.png",
+        path: "/project/.godot-vibe/inbox/review.png",
         name: "review.png",
         kind: "image",
       },
@@ -278,7 +278,7 @@ describe("chat run snapshots", () => {
     expect(useChatStore.getState().queuedTasks).toEqual([]);
     expect(useChatStore.getState().queuePauseReason).toBeNull();
     expect(mocks.removeStaged).toHaveBeenCalledWith(
-      "/project/.unity-vibe/inbox/review.png",
+      "/project/.godot-vibe/inbox/review.png",
     );
   });
 
@@ -291,7 +291,7 @@ describe("chat run snapshots", () => {
           {
             type: "tool_use",
             id: "verify-1",
-            name: "mcp__unity-vibe-os__unity_verify",
+            name: "mcp__godot-vibe-os__godot_verify",
             input: {},
           },
         ],

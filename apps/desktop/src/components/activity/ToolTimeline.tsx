@@ -46,7 +46,7 @@ export default function ToolTimeline() {
       >
         {activityCount === 0 ? (
           <div className="px-1 py-6 text-center text-xs text-fg-dim">
-            Steps the AI takes in Unity will show up here.
+            Steps the AI takes in Godot will show up here.
           </div>
         ) : (
           <div className="space-y-4">

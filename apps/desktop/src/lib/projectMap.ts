@@ -54,8 +54,9 @@ const PROJECT_MAP_RELATION_KIND_PRIORITY: Record<
 > = {
   contains: 0,
   declares: 1,
-  derives: 2,
+  extends: 2,
   references: 3,
+  instantiates: 4,
 };
 
 function compareProjectMapText(left: string, right: string): number {
@@ -211,27 +212,29 @@ const PROJECT_MAP_KIND_ORDER: KnowledgeEntityKind[] = [
   "project",
   "module",
   "scene",
-  "prefab",
+  "resource",
   "script",
-  "type",
-  "package",
+  "class",
+  "shader",
+  "addon",
 ];
 
 const PROJECT_MAP_SCOPE_ORDER: Record<KnowledgeEntity["scope"], number> = {
   project: 0,
   "first-party": 1,
-  package: 2,
+  addon: 2,
   external: 3,
 };
 
 const PROJECT_MAP_STRUCTURE_KIND_PRIORITY: Record<KnowledgeEntityKind, number> = {
   module: 0,
   scene: 1,
-  prefab: 2,
+  resource: 2,
   script: 3,
-  type: 4,
-  package: 5,
-  project: 6,
+  class: 4,
+  shader: 5,
+  addon: 6,
+  project: 7,
 };
 
 export function projectMapFacetCounts(
@@ -242,10 +245,11 @@ export function projectMapFacetCounts(
     project: 0,
     module: 0,
     scene: 0,
-    prefab: 0,
+    resource: 0,
     script: 0,
-    type: 0,
-    package: 0,
+    class: 0,
+    shader: 0,
+    addon: 0,
   };
   for (const entity of entities) counts[entity.kind] += 1;
   return counts;
@@ -340,7 +344,7 @@ export function projectMapChildren(
       if (relation.kind !== "contains") return [];
       const parent = byId.get(relation.from);
       const child = byId.get(relation.to);
-      return parent?.kind === "type" && child?.kind === "type"
+      return parent?.kind === "class" && child?.kind === "class"
         ? [child.id]
         : [];
     }),
@@ -355,7 +359,7 @@ export function projectMapChildren(
     }
     const child = byId.get(relation.to);
     if (
-      child?.kind === "type" &&
+      child?.kind === "class" &&
       relation.kind === "declares" &&
       nestedTypeIds.has(child.id)
     ) {
@@ -390,7 +394,7 @@ export function projectMapBreadcrumbs(
     parent,
     relationKind,
   }: ParentCandidate): number => {
-    if (relationKind === "contains" && parent.kind === "type") return 0;
+    if (relationKind === "contains" && parent.kind === "class") return 0;
     return relationKind === "declares" ? 1 : 2;
   };
   const parents = new Map<string, Map<string, ParentCandidate>>();
@@ -401,7 +405,7 @@ export function projectMapBreadcrumbs(
       !child ||
       !parent ||
       (relation.kind !== "contains" && relation.kind !== "declares") ||
-      (child.kind !== "type" && relation.kind !== "contains")
+      (child.kind !== "class" && relation.kind !== "contains")
     ) {
       continue;
     }
@@ -504,8 +508,9 @@ export function formatProjectMapRelation(
   > = {
     contains: { inbound: "Part of", outbound: "Contains" },
     declares: { inbound: "Declared in", outbound: "Declares" },
-    derives: { inbound: "Derived by", outbound: "Inherits from" },
+    extends: { inbound: "Extended by", outbound: "Extends" },
     references: { inbound: "Referenced by", outbound: "References" },
+    instantiates: { inbound: "Instantiated by", outbound: "Instantiates" },
   };
   return labels[kind][direction];
 }
@@ -517,5 +522,5 @@ export function formatKnowledgeFactValue(value: KnowledgeFact["value"]): string 
 }
 
 export function formatKnowledgeKind(kind: KnowledgeEntity["kind"]): string {
-  return kind === "script" ? "C# script" : kind;
+  return kind;
 }

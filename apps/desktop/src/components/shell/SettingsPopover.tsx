@@ -328,7 +328,7 @@ export default function SettingsPopover() {
             <span>
               <span className="block text-sm text-fg">Repair setup</span>
               <span className="block text-xs text-fg-dim">
-                Recheck the agent, project, and Unity.
+                Recheck the agent, project, and Godot.
               </span>
             </span>
             <button

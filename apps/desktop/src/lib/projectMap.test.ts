@@ -79,13 +79,13 @@ function sampleMap(): ProjectMapData {
   return {
     ageMs: 10,
     manifest: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: 1,
       project: {
         id: "project:sample",
         path: ".",
         name: "Sample",
-        isUnityProject: true,
+        isGodotProject: true,
       },
       coverage: {
         cap: 100,
@@ -97,21 +97,22 @@ function sampleMap(): ProjectMapData {
         counts: {
           files: 4,
           firstPartyScripts: 1,
-          packageScripts: 0,
+          addonScripts: 0,
           scenes: 0,
-          prefabs: 0,
+          resources: 0,
+          shaders: 0,
           entities: 2,
           relations: 1,
         },
         scopes: {
           firstParty: {
-            root: "Assets",
+            root: "res://",
             discovered: 4,
             scanned: 3,
             scripts: 1,
           },
-          packages: {
-            root: "Packages",
+          addons: {
+            root: "res://addons",
             discovered: 0,
             scanned: 0,
             scripts: 0,
@@ -129,16 +130,16 @@ function sampleMap(): ProjectMapData {
       {
         id: "script:player",
         kind: "script",
-        name: "Player.cs",
-        path: "Assets/Player.cs",
+        name: "player",
+        path: "res://player.gd",
         scope: "first-party",
         facts: [],
       },
       {
-        id: "type:player",
-        kind: "type",
+        id: "class:player",
+        kind: "class",
         name: "Player",
-        path: "Assets/Player.cs",
+        path: "res://player.gd",
         scope: "first-party",
         facts: [],
       },
@@ -148,8 +149,8 @@ function sampleMap(): ProjectMapData {
         id: "declares:player",
         kind: "declares",
         from: "script:player",
-        to: "type:player",
-        provenance: { source: "csharp-text", path: "Assets/Player.cs" },
+        to: "class:player",
+        provenance: { source: "gdscript-text", path: "res://player.gd" },
         observedAt: 1,
       },
     ],
@@ -161,12 +162,12 @@ function navigationMap(): ProjectMapData {
   data.entities = [
     entity("project:sample", "project", { name: "Sample" }),
     entity("module:gameplay", "module", { name: "Gameplay" }),
-    entity("script:player", "script", { name: "Player.cs" }),
-    entity("script:package-player", "script", {
-      name: "PackagePlayer.cs",
-      scope: "package",
+    entity("script:player", "script", { name: "player" }),
+    entity("script:addon-player", "script", {
+      name: "addon_player",
+      scope: "addon",
     }),
-    entity("type:player", "type", { name: "Player" }),
+    entity("class:player", "class", { name: "Player" }),
     entity("module:cycle-a", "module", { name: "Cycle A" }),
     entity("module:cycle-b", "module", { name: "Cycle B" }),
     entity("scene:loose", "scene", { name: "Loose" }),
@@ -174,12 +175,12 @@ function navigationMap(): ProjectMapData {
   data.relations = [
     relation("contains:module", "contains", "project:sample", "module:gameplay"),
     relation("contains:script", "contains", "module:gameplay", "script:player"),
-    relation("declares:player", "declares", "script:player", "type:player"),
+    relation("declares:player", "declares", "script:player", "class:player"),
     relation(
-      "declares:package-player",
+      "declares:addon-player",
       "declares",
-      "script:package-player",
-      "type:player",
+      "script:addon-player",
+      "class:player",
     ),
     relation("cycle:a-b", "contains", "module:cycle-a", "module:cycle-b"),
     relation("cycle:b-a", "contains", "module:cycle-b", "module:cycle-a"),
@@ -196,9 +197,9 @@ describe("project map presentation helpers", () => {
     const data = sampleMap();
     const script = projectMapConnections(data, "script:player");
     expect(script.inbound).toHaveLength(0);
-    expect(script.outbound[0].neighbor?.id).toBe("type:player");
+    expect(script.outbound[0].neighbor?.id).toBe("class:player");
 
-    const type = projectMapConnections(data, "type:player");
+    const type = projectMapConnections(data, "class:player");
     expect(type.inbound[0].neighbor?.id).toBe("script:player");
     expect(type.outbound).toHaveLength(0);
   });
@@ -206,29 +207,29 @@ describe("project map presentation helpers", () => {
   it("projects structural and dependency relations onto four directional arms", () => {
     const data = sampleMap();
     data.entities = [
-      entity("selected", "type"),
+      entity("selected", "class"),
       entity("north:contains", "module"),
       entity("north:declares", "script"),
-      entity("south:contains", "type"),
-      entity("south:declares", "type"),
-      entity("west:derives", "type"),
-      entity("west:references", "type"),
-      entity("east:derives", "type"),
-      entity("east:references", "type"),
+      entity("south:contains", "class"),
+      entity("south:declares", "class"),
+      entity("west:extends", "class"),
+      entity("west:references", "class"),
+      entity("east:extends", "class"),
+      entity("east:references", "class"),
     ];
     data.relations = [
       relation("north:contains", "contains", "north:contains", "selected"),
       relation("north:declares", "declares", "north:declares", "selected"),
       relation("south:contains", "contains", "selected", "south:contains"),
       relation("south:declares", "declares", "selected", "south:declares"),
-      relation("west:derives", "derives", "west:derives", "selected"),
+      relation("west:extends", "extends", "west:extends", "selected"),
       relation(
         "west:references",
         "references",
         "west:references",
         "selected",
       ),
-      relation("east:derives", "derives", "selected", "east:derives"),
+      relation("east:extends", "extends", "selected", "east:extends"),
       relation(
         "east:references",
         "references",
@@ -248,15 +249,15 @@ describe("project map presentation helpers", () => {
     ).toEqual({
       north: ["north:contains", "north:declares"],
       south: ["south:contains", "south:declares"],
-      west: ["west:derives", "west:references"],
-      east: ["east:derives", "east:references"],
+      west: ["west:extends", "west:references"],
+      east: ["east:extends", "east:references"],
     });
   });
 
   it("coalesces neighbors and orders their relations by kind and id", () => {
     const data = sampleMap();
     const neighbor = entity("container", "script");
-    data.entities = [entity("selected", "type"), neighbor];
+    data.entities = [entity("selected", "class"), neighbor];
     data.relations = [
       relation("z-declares", "declares", neighbor.id, "selected"),
       relation("z-contains", "contains", neighbor.id, "selected"),
@@ -275,17 +276,17 @@ describe("project map presentation helpers", () => {
   it("sorts neighborhood nodes deterministically before capping each arm", () => {
     const data = sampleMap();
     data.entities = [
-      entity("selected", "type"),
-      entity("id:z", "type", { name: "alpha" }),
-      entity("id:a", "type", { name: "Alpha" }),
-      entity("id:b", "type", { name: "beta" }),
-      entity("id:c", "type", { name: "aardvark" }),
+      entity("selected", "class"),
+      entity("id:z", "class", { name: "alpha" }),
+      entity("id:a", "class", { name: "Alpha" }),
+      entity("id:b", "class", { name: "beta" }),
+      entity("id:c", "class", { name: "aardvark" }),
     ];
     data.relations = [
       relation("reference:b", "references", "selected", "id:b"),
-      relation("derive:z", "derives", "selected", "id:z"),
+      relation("derive:z", "extends", "selected", "id:z"),
       relation("reference:c", "references", "selected", "id:c"),
-      relation("derive:a", "derives", "selected", "id:a"),
+      relation("derive:a", "extends", "selected", "id:a"),
     ];
 
     const forward = projectMapNeighborhood(data, "selected", 3).east;
@@ -309,7 +310,7 @@ describe("project map presentation helpers", () => {
       entity("scene:a", "scene", { name: "0" }),
       entity("scene:b", "scene", { name: "Bootstrap" }),
       entity("module:z", "module", { name: "Scripts" }),
-      entity("module:a", "module", { name: "Assets" }),
+      entity("module:a", "module", { name: "res://" }),
     ];
     data.relations = data.entities.slice(1).map((item) =>
       relation(`contains:${item.id}`, "contains", "project", item.id),
@@ -324,9 +325,9 @@ describe("project map presentation helpers", () => {
 
   it("ignores dangling neighborhood endpoints and empties missing selections", () => {
     const data = sampleMap();
-    data.entities = [entity("selected", "type"), entity("valid", "type")];
+    data.entities = [entity("selected", "class"), entity("valid", "class")];
     data.relations = [
-      relation("valid", "derives", "selected", "valid"),
+      relation("valid", "extends", "selected", "valid"),
       relation("dangling", "references", "selected", "missing"),
       relation("self", "references", "selected", "selected"),
     ];
@@ -356,7 +357,7 @@ describe("project map presentation helpers", () => {
       entity("project", "project"),
       entity("script:a", "script"),
       entity("script:b", "script"),
-      entity("type:a", "type"),
+      entity("class:a", "class"),
     ];
 
     expect(projectMapFacetCounts(entities)).toEqual({
@@ -364,10 +365,11 @@ describe("project map presentation helpers", () => {
       project: 1,
       module: 0,
       scene: 0,
-      prefab: 0,
+      resource: 0,
       script: 2,
-      type: 1,
-      package: 0,
+      class: 1,
+      shader: 0,
+      addon: 0,
     });
   });
 
@@ -387,10 +389,10 @@ describe("project map presentation helpers", () => {
 
   it("groups hits in browsing order while preserving order within groups", () => {
     const allHits = hits([
-      entity("type:b", "type"),
+      entity("class:b", "class"),
       entity("script:a", "script"),
       entity("project", "project"),
-      entity("type:a", "type"),
+      entity("class:a", "class"),
       entity("module", "module"),
     ]);
 
@@ -398,61 +400,61 @@ describe("project map presentation helpers", () => {
     expect(groups.map(({ kind, label }) => [kind, label])).toEqual([
       ["project", "project"],
       ["module", "module"],
-      ["script", "C# script"],
-      ["type", "type"],
+      ["script", "script"],
+      ["class", "class"],
     ]);
     expect(groups.at(-1)?.hits).toEqual([allHits[0], allHits[3]]);
   });
 
-  it("builds type breadcrumbs through its script and module", () => {
+  it("builds class breadcrumbs through its script and folder", () => {
     expect(
-      projectMapBreadcrumbs(navigationMap(), "type:player").map(
+      projectMapBreadcrumbs(navigationMap(), "class:player").map(
         (item) => item.id,
       ),
     ).toEqual([
       "project:sample",
       "module:gameplay",
       "script:player",
-      "type:player",
+      "class:player",
     ]);
   });
 
-  it("uses contains for nested types while preferring declares for normal types", () => {
+  it("uses contains for nested classes while preferring declares for normal classes", () => {
     const data = navigationMap();
     data.entities.push(
-      entity("type:outer", "type", { name: "Outer" }),
-      entity("type:nested", "type", { name: "Nested" }),
-      entity("type:normal", "type", { name: "Normal" }),
+      entity("class:outer", "class", { name: "Outer" }),
+      entity("class:nested", "class", { name: "Nested" }),
+      entity("class:normal", "class", { name: "Normal" }),
     );
     data.relations.push(
-      relation("declares:outer", "declares", "script:player", "type:outer"),
-      relation("contains:nested", "contains", "type:outer", "type:nested"),
-      relation("declares:nested", "declares", "script:player", "type:nested"),
-      relation("declares:normal", "declares", "script:player", "type:normal"),
+      relation("declares:outer", "declares", "script:player", "class:outer"),
+      relation("contains:nested", "contains", "class:outer", "class:nested"),
+      relation("declares:nested", "declares", "script:player", "class:nested"),
+      relation("declares:normal", "declares", "script:player", "class:normal"),
     );
 
     expect(
-      projectMapBreadcrumbs(data, "type:nested").map((item) => item.id),
+      projectMapBreadcrumbs(data, "class:nested").map((item) => item.id),
     ).toEqual([
       "project:sample",
       "module:gameplay",
       "script:player",
-      "type:outer",
-      "type:nested",
+      "class:outer",
+      "class:nested",
     ]);
     expect(
-      projectMapBreadcrumbs(data, "type:normal").map((item) => item.id),
+      projectMapBreadcrumbs(data, "class:normal").map((item) => item.id),
     ).toEqual([
       "project:sample",
       "module:gameplay",
       "script:player",
-      "type:normal",
+      "class:normal",
     ]);
-    expect(projectMapAncestorIds(data, "type:nested")).toEqual([
+    expect(projectMapAncestorIds(data, "class:nested")).toEqual([
       "project:sample",
       "module:gameplay",
       "script:player",
-      "type:outer",
+      "class:outer",
     ]);
   });
 
@@ -472,8 +474,8 @@ describe("project map presentation helpers", () => {
     ["contains", "outbound", "Contains"],
     ["declares", "inbound", "Declared in"],
     ["declares", "outbound", "Declares"],
-    ["derives", "inbound", "Derived by"],
-    ["derives", "outbound", "Inherits from"],
+    ["extends", "inbound", "Extended by"],
+    ["extends", "outbound", "Extends"],
     ["references", "inbound", "Referenced by"],
     ["references", "outbound", "References"],
   ] as const)("formats %s %s relations", (kind, direction, label) => {
@@ -482,21 +484,21 @@ describe("project map presentation helpers", () => {
 
   it("searches names, paths, and facts case-insensitively", () => {
     const entities = [
-      entity("type:camera", "type", { name: "CameraRig" }),
+      entity("class:camera", "class", { name: "CameraRig" }),
       entity("script:combat", "script", {
-        name: "Utility.cs",
-        path: "Assets/Combat/Utility.cs",
-        facts: [fact("memberSignature", "Spawn Enemy")],
+        name: "utility",
+        path: "res://combat/utility.gd",
+        facts: [fact("function", "func spawn_enemy()")],
       }),
     ];
 
     expect(localProjectMapHits(entities, "CAMERA")[0].entity.id).toBe(
-      "type:camera",
+      "class:camera",
     );
     expect(localProjectMapHits(entities, "combat")[0].entity.id).toBe(
       "script:combat",
     );
-    expect(localProjectMapHits(entities, "membersignature")[0].entity.id).toBe(
+    expect(localProjectMapHits(entities, "function")[0].entity.id).toBe(
       "script:combat",
     );
     expect(localProjectMapHits(entities, "spawn")[0].entity.id).toBe(
@@ -507,12 +509,12 @@ describe("project map presentation helpers", () => {
   it("requires every search token to match", () => {
     const entities = [
       entity("script:combat", "script", {
-        name: "Utility.cs",
-        path: "Assets/Combat/Utility.cs",
-        facts: [fact("memberSignature", "Spawn Enemy")],
+        name: "utility",
+        path: "res://combat/utility.gd",
+        facts: [fact("function", "func spawn_enemy()")],
       }),
       entity("script:other", "script", {
-        name: "Combat.cs",
+        name: "combat",
       }),
     ];
 
@@ -525,16 +527,16 @@ describe("project map presentation helpers", () => {
 
   it("ranks name matches before paths and facts with deterministic ties", () => {
     const entities = [
-      entity("path", "type", { name: "Other", path: "Assets/Player.cs" }),
-      entity("fact", "type", {
+      entity("path", "class", { name: "Other", path: "res://player.gd" }),
+      entity("fact", "class", {
         name: "OtherFact",
         facts: [fact("role", "Player")],
       }),
-      entity("contains", "type", { name: "SuperPlayer" }),
-      entity("prefix", "type", { name: "PlayerController" }),
-      entity("package", "type", { name: "Player", scope: "package" }),
-      entity("first-party:b", "type", { name: "Player" }),
-      entity("first-party:a", "type", { name: "Player" }),
+      entity("contains", "class", { name: "SuperPlayer" }),
+      entity("prefix", "class", { name: "PlayerController" }),
+      entity("addon", "class", { name: "Player", scope: "addon" }),
+      entity("first-party:b", "class", { name: "Player" }),
+      entity("first-party:a", "class", { name: "Player" }),
     ];
 
     expect(
@@ -542,7 +544,7 @@ describe("project map presentation helpers", () => {
     ).toEqual([
       "first-party:a",
       "first-party:b",
-      "package",
+      "addon",
       "prefix",
       "contains",
       "path",
@@ -552,9 +554,9 @@ describe("project map presentation helpers", () => {
 
   it("caps empty and populated local search results", () => {
     const entities = [
-      entity("a", "type", { name: "Match A" }),
-      entity("b", "type", { name: "Match B" }),
-      entity("c", "type", { name: "Match C" }),
+      entity("a", "class", { name: "Match A" }),
+      entity("b", "class", { name: "Match B" }),
+      entity("c", "class", { name: "Match C" }),
     ];
 
     expect(localProjectMapHits(entities, "", 2)).toEqual([
@@ -568,11 +570,11 @@ describe("project map presentation helpers", () => {
     const data = sampleMap();
     data.entities = [
       entity("root", "project"),
-      entity("package", "package", { name: "Package" }),
-      entity("type", "type", { name: "Type" }),
-      entity("script:z", "script", { name: "Zeta.cs" }),
-      entity("script:a", "script", { name: "Alpha.cs" }),
-      entity("prefab", "prefab", { name: "Prefab" }),
+      entity("addon", "addon", { name: "Addon" }),
+      entity("class", "class", { name: "Class" }),
+      entity("script:z", "script", { name: "zeta" }),
+      entity("script:a", "script", { name: "alpha" }),
+      entity("resource", "resource", { name: "Resource" }),
       entity("scene", "scene", { name: "Scene" }),
       entity("module", "module", { name: "Module" }),
     ];
@@ -580,42 +582,42 @@ describe("project map presentation helpers", () => {
       ...data.entities
         .slice(1)
         .map((item) => relation(`contains:${item.id}`, "contains", "root", item.id)),
-      relation("declares:type", "declares", "root", "type"),
+      relation("declares:class", "declares", "root", "class"),
     ];
 
     expect(projectMapChildren(data, "root").map((item) => item.id)).toEqual([
       "module",
       "scene",
-      "prefab",
+      "resource",
       "script:a",
       "script:z",
-      "type",
-      "package",
+      "class",
+      "addon",
     ]);
   });
 
-  it("places nested types only under their containing type", () => {
+  it("places nested classes only under their containing class", () => {
     const data = navigationMap();
     data.entities.push(
-      entity("type:outer", "type", { name: "Outer" }),
-      entity("type:nested", "type", { name: "Nested" }),
+      entity("class:outer", "class", { name: "Outer" }),
+      entity("class:nested", "class", { name: "Nested" }),
     );
     data.relations.push(
-      relation("declares:outer", "declares", "script:player", "type:outer"),
-      relation("declares:nested", "declares", "script:player", "type:nested"),
-      relation("contains:nested", "contains", "type:outer", "type:nested"),
+      relation("declares:outer", "declares", "script:player", "class:outer"),
+      relation("declares:nested", "declares", "script:player", "class:nested"),
+      relation("contains:nested", "contains", "class:outer", "class:nested"),
     );
 
     expect(
       projectMapChildren(data, "script:player").map((item) => item.id),
-    ).toEqual(["type:outer", "type:player"]);
+    ).toEqual(["class:outer", "class:player"]);
     expect(
-      projectMapChildren(data, "type:outer").map((item) => item.id),
-    ).toEqual(["type:nested"]);
+      projectMapChildren(data, "class:outer").map((item) => item.id),
+    ).toEqual(["class:nested"]);
   });
 
   it("deduplicates current history entries and truncates forward branches", () => {
-    const history = ["project", "script", "type"];
+    const history = ["project", "script", "class"];
     expect(pushProjectMapHistory(history, 1, "script")).toEqual({
       history,
       index: 1,
@@ -651,13 +653,13 @@ describe("project map presentation helpers", () => {
   });
 
   it("groups repeated facts without changing their first-occurrence order", () => {
-    const firstMember = fact("memberSignature", "Move()");
-    const role = fact("role", "Controller");
-    const secondMember = fact("memberSignature", "Jump()");
+    const firstMember = fact("function", "func move()");
+    const base = fact("baseClass", "CharacterBody2D");
+    const secondMember = fact("function", "func jump()");
 
-    expect(groupProjectMapFacts([firstMember, role, secondMember])).toEqual([
-      { key: "memberSignature", facts: [firstMember, secondMember] },
-      { key: "role", facts: [role] },
+    expect(groupProjectMapFacts([firstMember, base, secondMember])).toEqual([
+      { key: "function", facts: [firstMember, secondMember] },
+      { key: "baseClass", facts: [base] },
     ]);
   });
 });

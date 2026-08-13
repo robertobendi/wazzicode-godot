@@ -1,8 +1,8 @@
 //! Resource funnel — stage dropped / pasted files into the project inbox.
 //!
 //! Drag-and-drop and clipboard paste bring in real OS file paths (or raw image
-//! bytes). We copy them into `<project>/.unity-vibe/inbox/<ts>-<name>` so the
-//! agent has a stable, in-project path to `Read` or `unity_import_asset`, and
+//! bytes). We copy them into `<project>/.godot-vibe/inbox/<ts>-<name>` so the
+//! agent has a stable, in-project path to inspect and move into `res://`, and
 //! so the file survives even if the user later moves/deletes the original.
 //!
 //! `kind` classification lives here (single source of truth); the frontend
@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Per-file cap. Unity assets (models/audio/PSDs) can be large; 200 MB is a
+/// Per-file cap. Source art, models, and audio can be large; 200 MB is a
 /// generous ceiling that still guards against a stray multi-GB file.
 const MAX_BYTES: u64 = 200 * 1024 * 1024;
 
@@ -26,7 +26,7 @@ pub struct StagedResource {
     pub kind: String,
     /// The file's original (pre-staging) name, for the chip label.
     pub original_name: String,
-    /// Absolute path of the copy under `.unity-vibe/inbox/`.
+    /// Absolute path of the copy under `.godot-vibe/inbox/`.
     pub staged_path: String,
     pub byte_size: u64,
 }
@@ -51,7 +51,7 @@ pub async fn paste_clipboard(project: String) -> AppResult<Vec<StagedResource>> 
 }
 
 /// Delete a staged file. Refuses any path not inside some project's
-/// `.unity-vibe/inbox/` (canonicalize + component check), so a bad path can
+/// `.godot-vibe/inbox/` (canonicalize + component check), so a bad path can
 /// never remove an arbitrary file. A path that no longer exists is a no-op.
 #[tauri::command]
 pub async fn remove_staged(path: String) -> AppResult<()> {
@@ -145,7 +145,7 @@ fn remove_staged_blocking(path: &Path) -> AppResult<()> {
 // --- helpers ---------------------------------------------------------------
 
 fn inbox_dir(project: &Path) -> PathBuf {
-    project.join(".unity-vibe").join("inbox")
+    project.join(".godot-vibe").join("inbox")
 }
 
 /// Copy one source file into the inbox (or return it as-is if already inside).
@@ -206,11 +206,13 @@ fn stage_one(
 /// Extension classifier — the single source of truth for resource kinds.
 fn classify_kind(ext: &str) -> &'static str {
     match ext {
-        // PSD counts as an image — Unity imports it as a sprite/texture.
+        // PSD counts as an image; Godot can import it through an importer plugin.
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "psd" => "image",
         "fbx" | "obj" | "glb" | "gltf" | "blend" | "dae" => "model",
         "wav" | "mp3" | "ogg" | "aiff" => "audio",
-        "txt" | "md" | "json" | "csv" | "cs" | "shader" => "text",
+        "txt" | "md" | "json" | "csv" | "gd" | "cs" | "gdshader" | "shader" | "tscn" | "tres" => {
+            "text"
+        }
         _ => "other",
     }
 }
@@ -222,7 +224,7 @@ fn ext_of(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// True if `.unity-vibe` then `inbox` appear as consecutive path components.
+/// True if `.godot-vibe` then `inbox` appear as consecutive path components.
 fn is_inside_inbox(path: &Path) -> bool {
     let comps: Vec<String> = path
         .components()
@@ -230,7 +232,7 @@ fn is_inside_inbox(path: &Path) -> bool {
         .collect();
     comps
         .windows(2)
-        .any(|w| w[0] == ".unity-vibe" && w[1] == "inbox")
+        .any(|w| w[0] == ".godot-vibe" && w[1] == "inbox")
 }
 
 /// Pick a non-colliding path in `dir`: `<filename>`, then `<stem>-2.<ext>`, …
@@ -324,7 +326,9 @@ mod tests {
     #[test]
     fn classify_kind_covers_every_bucket() {
         assert_eq!(classify_kind("png"), "image");
-        assert_eq!(classify_kind("psd"), "image"); // Unity imports PSDs
+        assert_eq!(classify_kind("psd"), "image");
+        assert_eq!(classify_kind("gd"), "text");
+        assert_eq!(classify_kind("tscn"), "text");
         assert_eq!(classify_kind("fbx"), "model");
         assert_eq!(classify_kind("glb"), "model");
         assert_eq!(classify_kind("wav"), "audio");
@@ -352,19 +356,19 @@ mod tests {
 
     #[test]
     fn is_inside_inbox_requires_consecutive_components() {
-        assert!(is_inside_inbox(Path::new("/p/.unity-vibe/inbox/a.png")));
+        assert!(is_inside_inbox(Path::new("/p/.godot-vibe/inbox/a.png")));
         assert!(is_inside_inbox(Path::new(
-            "/x/y/.unity-vibe/inbox/sub/deep.fbx"
+            "/x/y/.godot-vibe/inbox/sub/deep.fbx"
         )));
-        assert!(!is_inside_inbox(Path::new("/p/.unity-vibe/config.json")));
+        assert!(!is_inside_inbox(Path::new("/p/.godot-vibe/config.json")));
         assert!(!is_inside_inbox(Path::new("/p/inbox/a.png")));
         assert!(!is_inside_inbox(Path::new("/etc/passwd")));
     }
 
     #[test]
     fn remove_staged_deletes_inside_inbox_and_refuses_outside() {
-        let tmp = std::env::temp_dir().join(format!("uvibe-test-{}", nanoid::nanoid!(8)));
-        let inbox = tmp.join(".unity-vibe").join("inbox");
+        let tmp = std::env::temp_dir().join(format!("gvibe-test-{}", nanoid::nanoid!(8)));
+        let inbox = tmp.join(".godot-vibe").join("inbox");
         fs::create_dir_all(&inbox).unwrap();
 
         // Inside the inbox: removed.
@@ -387,7 +391,7 @@ mod tests {
 
     #[test]
     fn stage_paths_copies_classifies_and_handles_collisions() {
-        let tmp = std::env::temp_dir().join(format!("uvibe-stage-{}", nanoid::nanoid!(8)));
+        let tmp = std::env::temp_dir().join(format!("gvibe-stage-{}", nanoid::nanoid!(8)));
         let src_dir = tmp.join("src");
         let project = tmp.join("Game");
         fs::create_dir_all(&src_dir).unwrap();

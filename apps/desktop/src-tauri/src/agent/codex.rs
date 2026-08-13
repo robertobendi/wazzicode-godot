@@ -8,7 +8,7 @@
 //! codex exec [resume <SESSION_ID>] \
 //!            --ignore-user-config --json --skip-git-repo-check \
 //!            --dangerously-bypass-approvals-and-sandbox \
-//!            -c mcp_servers.unity_vibe_os.command='…' … \
+//!            -c mcp_servers.godot_vibe_os.command='…' … \
 //!            [--model M] -
 //! ```
 //!
@@ -32,7 +32,7 @@
 //!    `config.toml` or `-c key=value` overrides, where the value is parsed as
 //!    TOML. Windows paths (`C:\Users\…`) are therefore a live hazard: in a TOML
 //!    *basic* string `\U` is an invalid escape. Verified against the real binary:
-//!    `args=["C:\Users\x\uvibe.cjs"]` dies with `invalid type: string, expected a
+//!    `args=["C:\Users\x\gvibe.cjs"]` dies with `invalid type: string, expected a
 //!    sequence`, because Codex falls back to treating an unparseable value as a
 //!    raw string. We emit *literal* (single-quoted) strings, which have no escape
 //!    sequences at all. See [`toml_string`].
@@ -48,17 +48,15 @@ use crate::agent::flags::FlagInput;
 use crate::mcpconfig::McpEntry;
 use crate::store::settings::Settings;
 
-/// MCP server name as Codex sees it. Underscores, not the `unity-vibe-os` used
+/// MCP server name as Codex sees it. Underscores, not the `godot-vibe-os` used
 /// in Claude's JSON config: this name becomes a bare key in a dotted `-c` path
-/// (`mcp_servers.unity_vibe_os.command`), and a hyphen there would have to be
-/// quoted. The webview keys Unity-tool detection off the same constant.
-pub const MCP_SERVER_NAME: &str = "unity_vibe_os";
+/// (`mcp_servers.godot_vibe_os.command`), and a hyphen there would have to be
+/// quoted. The webview keys Godot-tool detection off the same constant.
+pub const MCP_SERVER_NAME: &str = "godot_vibe_os";
 
-/// Unity work is slow — `unity_verify` waits on a domain reload, a recompile and
-/// a test run. Codex's default per-tool MCP timeout is far too tight for that, so
-/// we raise it well past the worst realistic call.
-const TOOL_TIMEOUT_SECS: u32 = 900;
-/// Node + the bundled `uvibe.cjs` cold-start.
+/// Imports and project verification can take minutes on a production project.
+const TOOL_TIMEOUT_SECS: u32 = 600;
+/// Node + the bundled `gvibe.cjs` cold-start.
 const STARTUP_TIMEOUT_SECS: u32 = 30;
 
 /// Assemble the full argv (everything after the `codex` program name).
@@ -76,7 +74,7 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
 
     args.push("--ignore-user-config".into());
     args.push("--json".into());
-    // Unity projects aren't necessarily git repos; Codex otherwise refuses to run.
+    // Godot projects are not necessarily git repos.
     args.push("--skip-git-repo-check".into());
 
     // Ignore-user-config removes custom providers; these explicit overrides
@@ -96,7 +94,7 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
         args.push("read-only".into());
     } else {
         // A headless approval prompt has no usable UI and would look like a
-        // frozen task. Studio owns recovery through checkpoints, Unity Undo,
+        // frozen task. Foundry owns recovery through checkpoints, Godot undo,
         // snapshots and the action log, so both fresh and resumed runs are
         // non-interactive.
         args.push("--dangerously-bypass-approvals-and-sandbox".into());
@@ -104,7 +102,7 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
 
     // The MCP server, as TOML overrides — the Codex analogue of Claude's
     // `--mcp-config` + `--strict-mcp-config`. An answer-only run gets none:
-    // the sandbox governs shell commands, not MCP calls, so the Unity write
+    // the sandbox governs shell commands, not MCP calls, so the Godot write
     // tools have to be withheld rather than merely sandboxed.
     if !input.read_only {
         for kv in mcp_overrides(input.mcp_entry) {
@@ -133,7 +131,7 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     args
 }
 
-/// The `-c` values that register the uvibe MCP server for this run.
+/// The `-c` values that register the gvibe MCP server for this run.
 fn mcp_overrides(entry: &McpEntry) -> Vec<String> {
     let p = format!("mcp_servers.{MCP_SERVER_NAME}");
     let args_toml = entry
@@ -145,7 +143,7 @@ fn mcp_overrides(entry: &McpEntry) -> Vec<String> {
     vec![
         format!("{p}.command={}", toml_string(&entry.command)),
         format!("{p}.args=[{args_toml}]"),
-        format!("{p}.env.UVIBE_PROJECT={}", toml_string(&entry.project)),
+        format!("{p}.env.GVIBE_PROJECT={}", toml_string(&entry.project)),
         format!("{p}.startup_timeout_sec={STARTUP_TIMEOUT_SECS}"),
         format!("{p}.tool_timeout_sec={TOOL_TIMEOUT_SECS}"),
     ]
@@ -255,8 +253,8 @@ mod tests {
     fn entry() -> McpEntry {
         McpEntry {
             command: r"C:\Program Files\studio\node.exe".into(),
-            args: vec![r"C:\Program Files\studio\uvibe.cjs".into(), "serve".into()],
-            project: r"C:\Users\dev\Unity\MyGame".into(),
+            args: vec![r"C:\Program Files\studio\gvibe.cjs".into(), "serve".into()],
+            project: r"C:\Users\dev\Godot\MyGame".into(),
         }
     }
 
@@ -301,7 +299,7 @@ mod tests {
         assert!(!args
             .iter()
             .any(|a| a == "--dangerously-bypass-approvals-and-sandbox"));
-        // The sandbox governs shell commands, not MCP — so the Unity tools are
+        // The sandbox governs shell commands, not MCP — so the Godot tools are
         // withheld outright.
         assert!(!args.iter().any(|a| a.starts_with("mcp_servers.")));
     }
@@ -313,30 +311,30 @@ mod tests {
         let args = args_for(None, None);
         let cmd = args
             .iter()
-            .find(|a| a.starts_with("mcp_servers.unity_vibe_os.command="))
+            .find(|a| a.starts_with("mcp_servers.godot_vibe_os.command="))
             .expect("command override present");
         assert_eq!(
             cmd,
-            r"mcp_servers.unity_vibe_os.command='C:\Program Files\studio\node.exe'"
+            r"mcp_servers.godot_vibe_os.command='C:\Program Files\studio\node.exe'"
         );
         assert!(!cmd.contains("\\\\"), "must not escape backslashes: {cmd}");
 
         let arr = args
             .iter()
-            .find(|a| a.starts_with("mcp_servers.unity_vibe_os.args="))
+            .find(|a| a.starts_with("mcp_servers.godot_vibe_os.args="))
             .unwrap();
         assert_eq!(
             arr,
-            r"mcp_servers.unity_vibe_os.args=['C:\Program Files\studio\uvibe.cjs', 'serve']"
+            r"mcp_servers.godot_vibe_os.args=['C:\Program Files\studio\gvibe.cjs', 'serve']"
         );
 
         let env = args
             .iter()
-            .find(|a| a.starts_with("mcp_servers.unity_vibe_os.env.UVIBE_PROJECT="))
+            .find(|a| a.starts_with("mcp_servers.godot_vibe_os.env.GVIBE_PROJECT="))
             .unwrap();
         assert_eq!(
             env,
-            r"mcp_servers.unity_vibe_os.env.UVIBE_PROJECT='C:\Users\dev\Unity\MyGame'"
+            r"mcp_servers.godot_vibe_os.env.GVIBE_PROJECT='C:\Users\dev\Godot\MyGame'"
         );
     }
 

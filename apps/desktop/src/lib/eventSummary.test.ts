@@ -2,18 +2,18 @@ import { describe, expect, it } from "vitest";
 import { summarizeEvent } from "./eventSummary";
 
 describe("summarizeEvent — Codex", () => {
-  it("names the Unity tool being called, not the wrapper item type", () => {
+  it("names the Godot tool being called, not the wrapper item type", () => {
     const s = summarizeEvent({
       type: "item.started",
       item: {
         id: "i1",
         type: "mcp_tool_call",
-        server: "unity_vibe_os",
-        tool: "unity_verify",
+        server: "godot_vibe_os",
+        tool: "godot_verify",
         arguments: { filter: "Player" },
       },
     });
-    expect(s.label).toBe("unity_verify");
+    expect(s.label).toBe("godot_verify");
     expect(s.level).toBe("tool");
     expect(s.detail).toContain("Player");
   });
@@ -24,14 +24,14 @@ describe("summarizeEvent — Codex", () => {
       item: {
         id: "i1",
         type: "mcp_tool_call",
-        tool: "unity_verify",
+        tool: "godot_verify",
         status: "failed",
-        error: { message: "UNITY_NOT_CONNECTED" },
+        error: { message: "GODOT_NOT_CONNECTED" },
       },
     });
-    expect(s.label).toBe("unity_verify (failed)");
+    expect(s.label).toBe("godot_verify (failed)");
     expect(s.level).toBe("error");
-    expect(s.detail).toContain("UNITY_NOT_CONNECTED");
+    expect(s.detail).toContain("GODOT_NOT_CONNECTED");
   });
 
   it("surfaces a non-zero shell exit as an error with its code", () => {
@@ -74,14 +74,14 @@ describe("summarizeEvent — Claude", () => {
           {
             type: "tool_use",
             id: "t1",
-            name: "mcp__unity-vibe-os__unity_verify",
+            name: "mcp__godot-vibe-os__godot_verify",
             input: { filter: "Player" },
           },
         ],
       },
     });
     // The MCP prefix is noise in a debug log.
-    expect(s.label).toBe("unity_verify");
+    expect(s.label).toBe("godot_verify");
     expect(s.level).toBe("tool");
   });
 

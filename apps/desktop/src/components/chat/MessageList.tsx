@@ -61,14 +61,14 @@ export default function MessageList() {
             <Logo size={27} />
           </div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-accent">
-            foundry-unity ready
+            GODOT VIBE OS READY
           </div>
           <h2 className="mt-3 text-xl font-semibold text-fg">
             What should we make?
           </h2>
           <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-fg-muted">
-            Describe a change in plain language. foundry-unity will handle the
-            Unity work and keep you in the loop.
+            Describe a change in plain language. Foundry will inspect the live
+            editor, use the project map, and keep you in the loop.
           </p>
           <div className="mx-auto mt-6 h-px w-20 bg-ink-700" />
           <p className="mt-4 text-xs text-fg-dim">

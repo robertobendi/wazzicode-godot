@@ -12,7 +12,7 @@ describe("DEFAULT_QUICK_ACTIONS", () => {
       expect(a.label.trim()).not.toBe("");
       expect(a.prompt.trim()).not.toBe("");
     }
-    expect(DEFAULT_QUICK_ACTIONS[0].label).toBe("Fix whatever's broken");
+    expect(DEFAULT_QUICK_ACTIONS[0].label).toBe("Verify the project");
   });
 });
 

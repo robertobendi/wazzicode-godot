@@ -1,6 +1,6 @@
 {
-  "name": "@uvibe/safety",
-  "version": "0.5.2",
+  "name": "@gvibe/safety",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@uvibe/core": "workspace:*",
+    "@gvibe/core": "workspace:*",
     "zod": "^3.23.8"
   }
 }

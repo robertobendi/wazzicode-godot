@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { initialDraft, reduceStream, type StreamDraft } from "./streamMapper";
-import { MAX_MCP_RESULT_TEXT_CHARS } from "./unityDiagnostics";
+import { MAX_MCP_RESULT_TEXT_CHARS } from "./godotDiagnostics";
 
 // Fixtures modeled on real Claude Code 2.1.198 `-p --output-format stream-json
 // --verbose --include-partial-messages` lines (fields trimmed to what the
@@ -11,10 +11,10 @@ const initEvent = {
   subtype: "init",
   session_id: "sess-abc",
   model: "claude-opus-4-8",
-  tools: ["Read", "Edit", "mcp__unity-vibe-os__unity_orient"],
+  tools: ["Read", "Edit", "mcp__godot-vibe-os__godot_orient"],
 };
 
-const initEventNoUnity = {
+const initEventNoGodot = {
   type: "system",
   subtype: "init",
   session_id: "sess-xyz",
@@ -38,7 +38,7 @@ const toolUseAssistant = {
       {
         type: "tool_use",
         id: "toolu_1",
-        name: "mcp__unity-vibe-os__unity_orient",
+        name: "mcp__godot-vibe-os__godot_orient",
         input: { detail: "summary" },
       },
     ],
@@ -53,7 +53,7 @@ const diagnosticToolUseAssistant = {
       {
         type: "tool_use",
         id: "toolu_1",
-        name: "mcp__unity-vibe-os__unity_verify",
+        name: "mcp__godot-vibe-os__godot_verify",
         input: {},
       },
     ],
@@ -90,16 +90,16 @@ function fold(lines: unknown[]): StreamDraft {
 }
 
 describe("reduceStream", () => {
-  it("captures session id and unity-tool availability from init", () => {
+  it("captures session id and godot-tool availability from init", () => {
     const d = reduceStream(initialDraft(), initEvent);
     expect(d.sessionId).toBe("sess-abc");
-    expect(d.hasUnityTools).toBe(true);
-    expect(d.toolsSeen).toContain("mcp__unity-vibe-os__unity_orient");
+    expect(d.hasGodotTools).toBe(true);
+    expect(d.toolsSeen).toContain("mcp__godot-vibe-os__godot_orient");
   });
 
-  it("flags missing unity tools", () => {
-    const d = reduceStream(initialDraft(), initEventNoUnity);
-    expect(d.hasUnityTools).toBe(false);
+  it("flags missing godot tools", () => {
+    const d = reduceStream(initialDraft(), initEventNoGodot);
+    expect(d.hasGodotTools).toBe(false);
   });
 
   it("accumulates streamed text deltas", () => {
@@ -114,7 +114,7 @@ describe("reduceStream", () => {
       id: "toolu_1",
       toolUseId: "toolu_1",
       status: "running",
-      friendlyLabel: "Getting oriented in Unity",
+      friendlyLabel: "Getting oriented in Godot",
     });
   });
 
@@ -132,7 +132,7 @@ describe("reduceStream", () => {
         ok: true,
         data: { pass: false, problems: [{ message: "A detailed failure" }] },
         warnings: [],
-        meta: { source: "unity_bridge", durationMs: 4, detailLevel: "normal" },
+        meta: { source: "godot_bridge", durationMs: 4, detailLevel: "normal" },
       },
       null,
       2,

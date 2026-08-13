@@ -23,7 +23,7 @@ import type {
   ProjectMapData,
   ProjectMapQueryResult,
 } from "@/types/projectMap";
-import type { UnityDiagnosticsSnapshot } from "@/types/unityDiagnostics";
+import type { GodotDiagnosticsSnapshot } from "@/types/godotDiagnostics";
 import type {
   CliStatus,
   OnboardingStatus,
@@ -38,8 +38,8 @@ export const api = {
   ping: () => invoke<string>("ping"),
 
   // Project selection / validation.
-  validateUnityProject: (path: string) =>
-    invoke<ProjectInfo>("validate_unity_project", { path }),
+  validateGodotProject: (path: string) =>
+    invoke<ProjectInfo>("validate_godot_project", { path }),
   setCurrentProject: (path: string) =>
     invoke<Settings>("set_current_project", { path }),
   readProjectMap: (project: string) =>
@@ -76,7 +76,7 @@ export const api = {
   revertLast: (project: string) =>
     invoke<RevertResult>("revert_last", { project }),
 
-  // Session history: persist + resume past chats under .unity-vibe/studio.
+  // Session history: persist + resume past chats under .godot-vibe/studio.
   saveSession: (project: string, payload: SessionPayload) =>
     invoke<void>("save_session", { project, payload }),
   listSessions: (project: string) =>
@@ -94,16 +94,14 @@ export const api = {
   statusStart: (project: string) => invoke<void>("status_start", { project }),
   statusStop: () => invoke<void>("status_stop"),
 
-  // Capture the live game/scene view; returns the on-disk PNG path to render.
+  // Capture the live Godot 2D/3D editor viewport.
   bridgeCapture: (
     project: string,
-    kind: "game" | "scene" | "selected" = "game",
+    kind: "2d" | "3d" = "2d",
   ) =>
     invoke<{ pngPath: string }>("bridge_capture", { project, kind }),
-  unityDiagnostics: (project: string) =>
-    invoke<UnityDiagnosticsSnapshot>("unity_diagnostics", { project }),
-  unityClearConsole: (project: string) =>
-    invoke<void>("unity_clear_console", { project }),
+  godotDiagnostics: (project: string) =>
+    invoke<GodotDiagnosticsSnapshot>("godot_diagnostics", { project }),
 
   // Resource funnel: copy dropped/pasted files into the project inbox.
   stagePaths: (project: string, paths: string[]) =>
@@ -156,7 +154,7 @@ export const api = {
 };
 
 /** Open a native folder picker. Returns null if cancelled. */
-export async function pickFolder(title = "Pick your Unity project") {
+export async function pickFolder(title = "Pick your Godot project") {
   const result = await openDialog({ directory: true, multiple: false, title });
   if (typeof result === "string") return result;
   return null;

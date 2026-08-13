@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "foundry-unity",
-  "version": "0.3.0",
-  "identifier": "com.wazzicode.unityvibestudio",
+  "productName": "Foundry for Godot",
+  "version": "0.1.0",
+  "identifier": "com.wazzicode.foundrygodot",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "foundry-unity",
+        "title": "Foundry for Godot",
         "width": 1280,
         "height": 800,
         "minWidth": 980,
@@ -45,8 +45,8 @@
       "icons/icon.ico"
     ],
     "category": "DeveloperTool",
-    "shortDescription": "Make Unity changes with AI, no terminal.",
-    "longDescription": "foundry-unity lets non-technical teammates make Unity changes through an AI assistant — chat, drag in resources, and let it drive Unity via the Unity Vibe OS bridge."
+    "shortDescription": "Make Godot scene, resource, and script changes with AI.",
+    "longDescription": "Foundry for Godot understands your project map, inspects live scenes and nodes, previews the 2D or 3D editor, and applies changes through the Godot Vibe OS addon."
   },
   "plugins": {}
 }

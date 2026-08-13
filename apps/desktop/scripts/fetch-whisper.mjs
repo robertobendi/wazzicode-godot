@@ -19,7 +19,7 @@
 // unavailable (see `useDictation.ts`), so a plain `tauri dev` needs no 40MB
 // download to get going.
 //
-// Run: pnpm --filter @uvibe/desktop bundle:whisper
+// Run: pnpm --filter @gvibe/desktop bundle:whisper
 
 import { createRequire } from "node:module";
 import { promises as fs, existsSync } from "node:fs";
@@ -56,7 +56,7 @@ const ORT_DIR = path.join(PUBLIC, "ort");
 async function main() {
   await fetchModel();
   await copyOnnxRuntime();
-  console.log("\n✅ Dictation assets ready. `pnpm --filter @uvibe/desktop build` will bundle them.");
+  console.log("\n✅ Dictation assets ready. `pnpm --filter @gvibe/desktop build` will bundle them.");
 }
 
 async function fetchModel() {

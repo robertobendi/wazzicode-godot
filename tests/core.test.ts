@@ -1,134 +1,231 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  ok,
+  BRIDGE_DISCOVERY_REL,
+  BRIDGE_METHODS,
+  DEFAULT_BRIDGE_HOST,
+  DEFAULT_BRIDGE_PORT,
+  DEFAULT_MCP_PORT,
+  FilesystemStatusSchema,
+  GodotNodeSchema,
+  OpenScenesResultSchema,
+  PRODUCT_NAME,
+  PROTOCOL_VERSION,
+  ProjectSummarySchema,
+  SceneTreeResultSchema,
+  ScreenshotResultSchema,
+  VariantSchema,
+  VerifyResultSchema,
   err,
-  makeError,
   isErrorCode,
   makeBridgeRequest,
-  PROTOCOL_VERSION,
-  BRIDGE_METHODS,
-  GameObjectSchema,
-  SceneHierarchySchema,
-  ProjectSummarySchema,
-} from "@uvibe/core";
+  makeError,
+  ok,
+} from "@gvibe/core";
 
-describe("core/envelope", () => {
-  it("produces ok envelopes with default meta", () => {
-    const env = ok({ a: 1 }, { source: "mock" });
-    expect(env.ok).toBe(true);
-    if (env.ok) {
-      expect(env.data).toEqual({ a: 1 });
-      expect(env.meta.source).toBe("mock");
-      expect(env.meta.detailLevel).toBe("normal");
-      expect(env.warnings).toEqual([]);
+describe("core product contract", () => {
+  it("uses Godot-native identity, ports, and per-project discovery", () => {
+    expect(PRODUCT_NAME).toBe("Godot Vibe OS");
+    expect(PROTOCOL_VERSION).toBe("1.0");
+    expect(DEFAULT_BRIDGE_HOST).toBe("127.0.0.1");
+    expect(DEFAULT_BRIDGE_PORT).toBe(38588);
+    expect(DEFAULT_MCP_PORT).toBe(38587);
+    expect(BRIDGE_DISCOVERY_REL).toBe(".godot/godot-vibe-os/bridge.json");
+  });
+
+  it("exposes the complete focused editor protocol without Unity methods", () => {
+    expect(Object.values(BRIDGE_METHODS)).toEqual([
+      "system.health",
+      "system.summary",
+      "scene.getOpenScenes",
+      "scene.getTree",
+      "selection.inspect",
+      "filesystem.status",
+      "filesystem.scan",
+      "resource.getDependencies",
+      "reflect.query",
+      "viewport.capture2D",
+      "viewport.capture3D",
+      "scene.open",
+      "scene.save",
+      "edit.setProperty",
+      "edit.createNode",
+      "edit.deleteNode",
+      "edit.reparentNode",
+      "edit.instantiateScene",
+      "play.run",
+      "play.stop",
+      "play.status",
+    ]);
+    expect(Object.values(BRIDGE_METHODS).some((method) => /unity|prefab|gameobject/i.test(method))).toBe(false);
+  });
+
+  it("creates versioned requests with unique ids and explicit params", () => {
+    const first = makeBridgeRequest(BRIDGE_METHODS.sceneGetTree, { nodePath: "." });
+    const second = makeBridgeRequest(BRIDGE_METHODS.sceneGetTree);
+    expect(first).toMatchObject({ version: PROTOCOL_VERSION, method: "scene.getTree", params: { nodePath: "." } });
+    expect(first.id).not.toBe(second.id);
+    expect(second.params).toEqual({});
+  });
+});
+
+describe("core envelopes and errors", () => {
+  it("builds stable success metadata for the Godot bridge", () => {
+    const envelope = ok(
+      { playing: false },
+      {
+        source: "godot_bridge",
+        durationMs: 7,
+        godotVersion: "4.7.1.stable.official",
+        projectPath: "/game",
+      },
+      ["import still scanning"],
+    );
+    expect(envelope).toEqual({
+      ok: true,
+      data: { playing: false },
+      warnings: ["import still scanning"],
+      meta: {
+        source: "godot_bridge",
+        durationMs: 7,
+        detailLevel: "normal",
+        godotVersion: "4.7.1.stable.official",
+        projectPath: "/game",
+      },
+    });
+  });
+
+  it("maps known error codes and preserves structured details", () => {
+    const envelope = err(
+      "PROJECT_IDENTITY_MISMATCH",
+      "Wrong project",
+      { source: "godot_bridge" },
+      { expected: "/game-a", actual: "/game-b" },
+    );
+    expect(envelope.ok).toBe(false);
+    if (!envelope.ok) {
+      expect(envelope.error).toMatchObject({
+        code: "PROJECT_IDENTITY_MISMATCH",
+        message: "Wrong project",
+        recoverable: true,
+        details: { expected: "/game-a", actual: "/game-b" },
+      });
+      expect(envelope.error.suggestedAction).toContain("expected project");
     }
+    expect(isErrorCode("GODOT_NOT_CONNECTED")).toBe(true);
+    expect(isErrorCode("UNITY_NOT_CONNECTED")).toBe(false);
   });
 
-  it("produces err envelopes with stable codes", () => {
-    const env = err("UNITY_NOT_CONNECTED");
-    expect(env.ok).toBe(false);
-    if (!env.ok) {
-      expect(env.error.code).toBe("UNITY_NOT_CONNECTED");
-      expect(env.error.recoverable).toBe(true);
-      expect(typeof env.error.suggestedAction).toBe("string");
-    }
-  });
-
-  it("rejects unknown error codes via isErrorCode", () => {
-    expect(isErrorCode("UNITY_NOT_CONNECTED")).toBe(true);
-    expect(isErrorCode("FAKE_CODE")).toBe(false);
-  });
-
-  it("makeError returns metadata for every defined code", () => {
+  it("defines actionable metadata for every public error code", () => {
     const codes = [
-      "UNITY_NOT_CONNECTED",
-      "UNITY_COMPILING",
+      "GODOT_NOT_CONNECTED",
+      "GODOT_RELOADING",
+      "PLAY_MODE_REQUIRED",
+      "TEST_RUNNER_NOT_CONFIGURED",
+      "UNSAVED_CHANGES",
+      "PROJECT_IDENTITY_MISMATCH",
+      "FEATURE_UNAVAILABLE",
       "OBJECT_NOT_FOUND",
+      "NODE_NOT_FOUND",
+      "SCENE_NOT_OPEN",
+      "METHOD_NOT_FOUND",
+      "CLASS_NOT_FOUND",
+      "PROPERTY_NOT_FOUND",
+      "INVALID_NODE_TYPE",
+      "UNSUPPORTED_VALUE",
+      "CAPTURE_UNAVAILABLE",
+      "FILE_WRITE_FAILED",
+      "SCENE_SAVE_FAILED",
+      "INVALID_REQUEST",
+      "PROTOCOL_VERSION_MISMATCH",
+      "RESOURCE_NOT_FOUND",
       "INVALID_ARGUMENT",
+      "SAFETY_MODE_BLOCKED",
+      "WRITE_REQUIRES_SNAPSHOT",
+      "UNSUPPORTED_GODOT_VERSION",
+      "INTERNAL_ERROR",
+      "MOCK_MODE_ACTIVE",
       "BRIDGE_TIMEOUT",
       "MALFORMED_BRIDGE_RESPONSE",
       "TOOL_NOT_IMPLEMENTED",
-      "INTERNAL_ERROR",
+      "PROJECT_NOT_FOUND",
+      "GIT_NOT_AVAILABLE",
     ] as const;
-    for (const c of codes) {
-      const d = makeError(c);
-      expect(d.code).toBe(c);
-      expect(d.message.length).toBeGreaterThan(0);
-      expect(d.suggestedAction.length).toBeGreaterThan(0);
+    for (const code of codes) {
+      const detail = makeError(code);
+      expect(detail.code).toBe(code);
+      expect(detail.message.length).toBeGreaterThan(5);
+      expect(detail.suggestedAction.length).toBeGreaterThan(5);
     }
   });
 });
 
-describe("core/protocol", () => {
-  it("makeBridgeRequest stamps protocol version and a uuid-like id", () => {
-    const r = makeBridgeRequest(BRIDGE_METHODS.systemHealth);
-    expect(r.version).toBe(PROTOCOL_VERSION);
-    expect(r.method).toBe("system.health");
-    expect(typeof r.id).toBe("string");
-    expect(r.id.length).toBeGreaterThan(4);
-    expect(r.params).toEqual({});
-  });
+describe("core Godot schemas", () => {
+  it("validates project, import, scene, and node data returned by the addon", () => {
+    const filesystem = { scanning: false, importing: false, progress: 1, indexedFiles: 42 };
+    expect(FilesystemStatusSchema.safeParse(filesystem).success).toBe(true);
+    expect(ProjectSummarySchema.safeParse({
+      engine: "godot",
+      godotVersion: "4.7.1.stable.official",
+      projectName: "Signal & Steel",
+      projectPath: "/games/signal-steel",
+      platform: "macOS",
+      openSceneCount: 1,
+      editedScene: "res://scenes/main.tscn",
+      isPlaying: false,
+      filesystem,
+    }).success).toBe(true);
+    expect(OpenScenesResultSchema.safeParse({
+      scenes: [{ path: "res://scenes/main.tscn", name: "Main", rootType: "Node2D", active: true, unsaved: false }],
+      count: 1,
+      activeScene: "res://scenes/main.tscn",
+    }).success).toBe(true);
 
-  it("BRIDGE_METHODS exposes the MVP method names", () => {
-    expect(Object.values(BRIDGE_METHODS)).toEqual(
-      expect.arrayContaining([
-        "system.health",
-        "system.summary",
-        "scene.getOpenScenes",
-        "scene.getHierarchy",
-        "selection.inspect",
-        "console.getLogs",
-        "compile.status",
-      ])
-    );
-  });
-});
-
-describe("core/schemas", () => {
-  it("ProjectSummarySchema accepts well-formed mock", () => {
-    const r = ProjectSummarySchema.safeParse({
-      unityVersion: "2022.3.42f1",
-      projectPath: "/x",
-      packages: [{ name: "com.unity.x", version: "1.0.0" }],
-    });
-    expect(r.success).toBe(true);
-  });
-
-  it("GameObjectSchema requires path/name/transform", () => {
-    const bad = GameObjectSchema.safeParse({ name: "x" });
-    expect(bad.success).toBe(false);
-    const good = GameObjectSchema.safeParse({
+    const child = {
       name: "Player",
-      path: "/Player",
-      activeSelf: true,
-      activeInHierarchy: true,
-      tag: "Untagged",
-      layer: "Default",
-      transform: {
-        position: { x: 0, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0 },
-        localScale: { x: 1, y: 1, z: 1 },
-      },
-      components: [],
-    });
-    expect(good.success).toBe(true);
+      type: "CharacterBody2D",
+      path: "Player",
+      sceneFilePath: "",
+      ownerPath: ".",
+      childCount: 0,
+      instanceId: 2,
+      children: [],
+    };
+    expect(GodotNodeSchema.safeParse(child).success).toBe(true);
+    expect(SceneTreeResultSchema.safeParse({
+      scenePath: "res://scenes/main.tscn",
+      root: { ...child, name: "Main", type: "Node2D", path: ".", childCount: 1, children: [child] },
+      nodeCount: 2,
+      truncated: false,
+    }).success).toBe(true);
   });
 
-  it("SceneHierarchySchema validates nested children", () => {
-    const r = SceneHierarchySchema.safeParse({
-      scene: "Assets/Scenes/Sample.unity",
-      roots: [
-        {
-          name: "Root",
-          path: "/Root",
-          active: true,
-          childCount: 1,
-          children: [
-            { name: "Child", path: "/Root/Child", active: true, childCount: 0 },
-          ],
-        },
-      ],
+  it("supports JSON-safe nested Variants and rejects unsupported values", () => {
+    expect(VariantSchema.safeParse({ speed: 220, tags: ["player", null], active: true }).success).toBe(true);
+    expect(VariantSchema.safeParse(Symbol("not-json")).success).toBe(false);
+  });
+
+  it("requires real PNG dimensions and truthfully labels test-runner status", () => {
+    expect(ScreenshotResultSchema.safeParse({
+      kind: "2d",
+      mimeType: "image/png",
+      pngBase64: "iVBORw0KGgo=",
+      path: "res://.godot/godot-vibe-os/captures/2d.png",
+      absolutePath: "/game/.godot/godot-vibe-os/captures/2d.png",
+      width: 1280,
+      height: 720,
+      bytes: 8,
+    }).success).toBe(true);
+    expect(ScreenshotResultSchema.safeParse({ kind: "game", mimeType: "image/png" }).success).toBe(false);
+
+    const verify = VerifyResultSchema.parse({
+      verdict: "pass",
+      import: { ok: true, command: "godot --headless --import --quit", exitCode: 0, output: "" },
+      scripts: { checked: 3, failed: 0, failures: [] },
+      csharp: { status: "not_present", scripts: 0, projects: 0, message: "No C# scripts or project files were found." },
+      tests: { status: "not_configured", message: "No project test runner was invoked." },
+      warnings: [],
     });
-    expect(r.success).toBe(true);
+    expect(verify.tests.status).toBe("not_configured");
+    expect(VerifyResultSchema.safeParse({ ...verify, verdict: "unverified", csharp: { status: "unverified", scripts: 1, projects: 1, message: "C#/.NET verification was not performed." } }).success).toBe(true);
   });
 });

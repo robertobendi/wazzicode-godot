@@ -5,11 +5,10 @@ export interface ProjectInfo {
   ok: boolean;
   name: string;
   path: string;
-  unityVersion: string | null;
-  hasAssets: boolean;
-  hasProjectSettings: boolean;
-  uvibeInitialized: boolean;
-  /** `.unity-vibe/knowledge/manifest.json` exists. */
+  godotVersion: string | null;
+  hasProjectFile: boolean;
+  addonInstalled: boolean;
+  vibeInitialized: boolean;
   brainReady: boolean;
   safetyMode: string | null;
 }

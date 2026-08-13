@@ -2,8 +2,7 @@ import { useChatStore } from "@/stores/useChatStore";
 import { useStatusStore } from "@/stores/useStatusStore";
 
 /**
- * Non-blocking amber banner shown when Unity drops out mid-run. Disconnection
- * can recover; a project identity mismatch needs the user to switch Unity.
+ * Non-blocking banner shown when Godot drops out mid-run.
  */
 export default function ConnectionBanner() {
   const running = useChatStore((s) => s.running);
@@ -13,9 +12,9 @@ export default function ConnectionBanner() {
 
   const message =
     state === "identity_mismatch"
-      ? "A different Unity project is open. Open this project in Unity so the task can continue."
+      ? "A different Godot project is open. Open this project in Godot so the task can continue."
       : state === "disconnected"
-        ? "Unity disconnected. Open this project in Unity; the task will retry when it reconnects."
+        ? "Godot disconnected. Open this project in Godot; the task will retry when it reconnects."
         : null;
   if (!message) return null;
 

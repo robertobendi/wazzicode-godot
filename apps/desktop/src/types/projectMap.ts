@@ -1,28 +1,27 @@
 export type KnowledgeEntityKind =
   | "project"
-  | "package"
+  | "addon"
   | "scene"
-  | "prefab"
+  | "resource"
   | "script"
-  | "type"
-  | "module";
+  | "class"
+  | "module"
+  | "shader";
 
-export type KnowledgeScope =
-  | "project"
-  | "first-party"
-  | "package"
-  | "external";
+export type KnowledgeScope = "project" | "first-party" | "addon" | "external";
 
 export type KnowledgeRelationKind =
   | "contains"
   | "declares"
-  | "derives"
-  | "references";
+  | "extends"
+  | "references"
+  | "instantiates";
 
 export type KnowledgeProvenanceSource =
   | "filesystem"
   | "project-settings"
-  | "package-manifest"
+  | "gdscript-text"
+  | "godot-resource"
   | "csharp-text"
   | "derived";
 
@@ -39,7 +38,6 @@ export interface KnowledgeFact {
   value: string | number | boolean | string[];
   provenance: KnowledgeProvenance;
   observedAt: number;
-  /** Present only for heuristic facts. */
   confidence?: number;
 }
 
@@ -59,19 +57,13 @@ export interface KnowledgeRelation {
   to: string;
   provenance: KnowledgeProvenance;
   observedAt: number;
-  /** Present only for heuristic relationships. */
   confidence?: number;
 }
 
 export interface KnowledgeManifest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAt: number;
-  project: {
-    id: string;
-    path: ".";
-    name: string;
-    isUnityProject: boolean;
-  };
+  project: { id: string; path: "."; name: string; isGodotProject: boolean };
   coverage: {
     cap: number;
     discovered: number;
@@ -82,30 +74,24 @@ export interface KnowledgeManifest {
     counts: {
       files: number;
       firstPartyScripts: number;
-      packageScripts: number;
+      addonScripts: number;
       scenes: number;
-      prefabs: number;
+      resources: number;
+      shaders: number;
       entities: number;
       relations: number;
     };
     scopes: {
       firstParty: KnowledgeScopeCoverage;
-      packages: KnowledgeScopeCoverage;
+      addons: KnowledgeScopeCoverage;
     };
   };
-  fingerprint: {
-    algorithm: "sha256";
-    source: string;
-    content: string;
-  };
-  dirty: {
-    value: boolean;
-    reasons: Array<{ at: number; change: string }>;
-  };
+  fingerprint: { algorithm: "sha256"; source: string; content: string };
+  dirty: { value: boolean; reasons: Array<{ at: number; change: string }> };
 }
 
 export interface KnowledgeScopeCoverage {
-  root: "Assets" | "Packages";
+  root: "res://" | "res://addons";
   discovered: number;
   scanned: number;
   scripts: number;
@@ -118,19 +104,6 @@ export interface ProjectMapData {
   ageMs: number;
 }
 
-export interface ProjectMapSearchHit {
-  entity: KnowledgeEntity;
-  score: number;
-}
-
-export interface ProjectMapQueryResult {
-  hits: ProjectMapSearchHit[];
-  refreshedMap?: ProjectMapData;
-}
-
-/** Answer to a read-only question about the project, plus the entities it
- *  cites — already filtered to ids that exist in the current map. */
-export interface ProjectMapAnswer {
-  answer: string;
-  entityIds: string[];
-}
+export interface ProjectMapSearchHit { entity: KnowledgeEntity; score: number }
+export interface ProjectMapQueryResult { hits: ProjectMapSearchHit[]; refreshedMap?: ProjectMapData }
+export interface ProjectMapAnswer { answer: string; entityIds: string[] }
