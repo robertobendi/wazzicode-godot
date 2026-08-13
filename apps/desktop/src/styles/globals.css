@@ -1,0 +1,1189 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Theme tokens, shared with Hightower so the suite reads as one system: same
+ * neutral ramp, same status hues, same border tiers. Foundry differs only in
+ * the accent — ember orange where Hightower is achromatic.
+ *
+ * `:root` is dark (the default). `.theme-light` flips the same properties.
+ * RGB triplets so Tailwind's `<alpha-value>` opacity modifiers keep working.
+ */
+:root,
+.theme-dark {
+  color-scheme: dark;
+
+  --ink-950: 10 11 13;
+  --ink-900: 16 18 22;
+  --ink-850: 24 27 32;
+  --ink-800: 30 34 40;
+  --ink-700: 36 40 47;
+  --ink-600: 50 55 64;
+
+  --fg: 232 234 238;
+  --fg-muted: 170 176 186;
+  --fg-dim: 100 108 120;
+
+  /* Inverted roles: --accent is the tinted fill, --action the bright ink that
+     sits on top of it, so a peach-on-white chip becomes ember-on-brown. */
+  --accent: 60 38 25;
+  --accent-hover: 74 47 30;
+  --action: 240 145 92;
+  --action-hover: 250 168 120;
+  --on-action: 26 18 12;
+  /* Shadows and modal scrims: the dark side of the palette, not the ink. */
+  --shadow: 0 0 0;
+  --scrim-alpha: 0.55;
+
+  --success: 125 197 152;
+  --warning: 232 200 116;
+  --danger: 224 110 110;
+
+  --surface: 16 18 22;
+  --surface-2: 24 27 32;
+  --border-default: 40 44 52;
+  --border-subtle: 28 31 37;
+  --border-hover: 50 55 64;
+  --hover: 30 34 40;
+
+  --spectrum-blue: 60 38 25;
+  --spectrum-violet: 60 38 25;
+  --spectrum-rose: 60 38 25;
+  --spectrum-amber: 60 38 25;
+  --spectrum-cyan: 60 38 25;
+}
+
+.theme-light {
+  color-scheme: light;
+
+  --ink-950: 250 250 251;
+  --ink-900: 255 255 255;
+  --ink-850: 244 245 247;
+  --ink-800: 239 240 243;
+  --ink-700: 230 231 234;
+  --ink-600: 198 202 208;
+
+  --fg: 18 20 24;
+  --fg-muted: 72 78 86;
+  --fg-dim: 108 114 124;
+
+  --accent: 254 215 170;
+  --accent-hover: 255 230 199;
+  --action: 184 67 31;
+  --action-hover: 150 54 25;
+  --on-action: 255 255 255;
+  --shadow: 18 20 24;
+  --scrim-alpha: 0.28;
+
+  --success: 47 137 90;
+  --warning: 168 123 0;
+  --danger: 196 61 61;
+
+  --surface: 255 255 255;
+  --surface-2: 244 245 247;
+  --border-default: 222 224 228;
+  --border-subtle: 234 236 239;
+  --border-hover: 198 202 208;
+  --hover: 239 240 243;
+
+  --spectrum-blue: 254 215 170;
+  --spectrum-violet: 254 215 170;
+  --spectrum-rose: 254 215 170;
+  --spectrum-amber: 254 215 170;
+  --spectrum-cyan: 254 215 170;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: rgb(var(--ink-950));
+  color: rgb(var(--fg));
+  font-family: theme("fontFamily.sans");
+  font-feature-settings: "cv11", "ss01", "ss03";
+  font-size: 13px;
+  line-height: 20px;
+  letter-spacing: 0.1px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+/* Window drag regions. `-webkit-app-region` is quirky in WKWebView under
+   titleBarStyle "Overlay", so the header also drags via startDragging() in JS;
+   this keeps the CSS path working where it does apply. */
+@layer utilities {
+  .drag-region {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
+
+/* Controls inside a drag region stay clickable. */
+.drag-region
+  :is(
+    button,
+    input,
+    select,
+    textarea,
+    a,
+    [role="button"],
+    [role="switch"],
+    [role="radiogroup"]
+  ) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+#root {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+#root > :not(.ambient-backdrop) {
+  position: relative;
+  z-index: 1;
+}
+
+#root > .bg-ink-950 {
+  background-color: transparent;
+}
+
+.ambient-backdrop {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgb(var(--ink-950));
+}
+
+.ambient-backdrop::before,
+.ambient-backdrop::after {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+}
+
+.ambient-backdrop::before {
+  display: none;
+  background: none;
+}
+
+.ambient-backdrop::after {
+  display: none;
+  opacity: 0;
+  background: none;
+}
+
+.ambient-orb {
+  position: absolute;
+  z-index: 1;
+  display: none;
+  width: 58vmax;
+  height: 58vmax;
+  border-radius: 50%;
+}
+
+.ambient-orb--blue {
+  top: -39vmax;
+  left: -25vmax;
+  background: none;
+  animation: none;
+}
+
+.ambient-orb--violet {
+  top: -35vmax;
+  right: -28vmax;
+  width: 62vmax;
+  height: 62vmax;
+  background: none;
+  animation: none;
+}
+
+.ambient-orb--rose {
+  right: -26vmax;
+  bottom: -41vmax;
+  width: 64vmax;
+  height: 64vmax;
+  background: none;
+  animation: none;
+}
+
+.ambient-orb--amber {
+  bottom: -43vmax;
+  left: -27vmax;
+  width: 66vmax;
+  height: 66vmax;
+  background: none;
+  animation: none;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.03em;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:not(:disabled) {
+  transition:
+    color 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+button:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+.selectable {
+  user-select: text;
+}
+
+.app-shell {
+  background: rgb(var(--ink-950));
+  animation: shell-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Flush chrome, like Hightower's toolbar: the window is the canvas, so the
+   header is a bordered band rather than a floating card. */
+.app-topbar {
+  border-color: rgb(var(--border-default));
+  background: rgb(var(--ink-900));
+}
+
+.foundry-lockup {
+  color: rgb(var(--fg));
+}
+
+.foundry-lockup > svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.foundry-wordmark {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.workspace-shell {
+  background: rgb(var(--ink-950));
+}
+
+.chat-view {
+  background: transparent;
+}
+
+.session-rail {
+  border-color: rgb(var(--border-default));
+  box-shadow: none;
+}
+
+.session-rail__header {
+  min-height: 48px;
+  border-color: rgb(var(--border-subtle));
+  background: rgb(var(--surface-2));
+}
+
+.composer-shell {
+  border-color: rgb(var(--border-default));
+  box-shadow:
+    0 1px 2px rgb(var(--shadow) / 0.035),
+    0 6px 18px rgb(var(--shadow) / 0.035);
+}
+
+.composer-shell .command-dock {
+  border-color: rgb(var(--border-default));
+  background: rgb(var(--surface-2));
+  box-shadow: none;
+}
+
+.icon-button {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid transparent;
+}
+
+.icon-button:hover {
+  border-color: rgb(var(--border-subtle));
+  background: rgb(var(--hover));
+}
+
+.app-topbar .icon-button.text-fg,
+.icon-button[aria-expanded="true"] {
+  border-color: rgb(var(--action));
+  background: rgb(var(--accent));
+  color: rgb(var(--action));
+}
+
+.mode-toggle {
+  border-color: rgb(var(--border-default));
+  background: rgb(var(--surface-2));
+  box-shadow: none;
+}
+
+.mode-toggle button.bg-white\/10 {
+  background: rgb(var(--accent));
+  color: rgb(var(--fg));
+  box-shadow: inset 0 0 0 1px rgb(var(--action) / 0.2);
+}
+
+.glass-bar,
+.glass-panel,
+.glass-card {
+  border-color: rgb(var(--border-default));
+  border-radius: 12px;
+  background: rgb(var(--surface));
+  box-shadow:
+    0 1px 2px rgb(var(--shadow) / 0.035),
+    0 8px 24px rgb(var(--shadow) / 0.035);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Settings is a true modal layer, not another translucent card in the scene.
+   The stronger surface prevents background controls/text from bleeding through
+   and the portal/backdrop guarantee pointer hit-testing matches what is visible. */
+.settings-backdrop {
+  background: rgb(var(--shadow) / var(--scrim-alpha));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.settings-surface {
+  border-color: rgb(var(--border-default));
+  border-radius: 12px;
+  background: rgb(var(--surface));
+  box-shadow:
+    0 1px 2px rgb(var(--shadow) / 0.05),
+    0 16px 40px rgb(var(--shadow) / 0.12);
+}
+
+.project-map-backdrop {
+  background: rgb(var(--shadow) / var(--scrim-alpha));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.project-map-surface {
+  border-color: rgb(var(--border-default));
+  border-radius: 12px;
+  background: rgb(var(--surface));
+  box-shadow:
+    -8px 0 32px rgb(var(--shadow) / 0.1),
+    0 1px 2px rgb(var(--shadow) / 0.05);
+  animation: project-map-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.project-map-mark {
+  border-color: rgb(var(--action) / 0.22);
+  border-radius: 8px;
+  background: rgb(var(--accent));
+  box-shadow: none;
+}
+
+.project-map-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 340px) minmax(0, 1fr);
+}
+
+.project-map-browser {
+  overflow: hidden;
+  background: rgb(var(--surface-2));
+}
+
+.project-map-inspector {
+  background: rgb(var(--surface));
+  container-name: project-map-inspector;
+  container-type: inline-size;
+}
+
+.project-map-inspector-heading:focus {
+  outline: 2px solid rgb(var(--action));
+  outline-offset: 4px;
+}
+
+.project-map-searching {
+  border-color: rgb(var(--action) / 0.2);
+  background: rgb(var(--accent) / 0.3);
+}
+
+.project-map-searching-spinner {
+  border-color: rgb(var(--action) / 0.2);
+  border-top-color: rgb(var(--action));
+}
+
+.project-map-entity-row {
+  position: relative;
+  overflow: hidden;
+}
+
+.project-map-entity-row[aria-current="true"]::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  content: "";
+  background: rgb(var(--action));
+  box-shadow: none;
+}
+
+.project-map-tree-row {
+  position: relative;
+  overflow: hidden;
+}
+
+.project-map-neighborhood-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.project-map-legend-line {
+  position: relative;
+  display: inline-block;
+  width: 1.15rem;
+  height: 2px;
+  background: rgb(var(--action));
+}
+
+.project-map-legend-line::after {
+  position: absolute;
+  top: 50%;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 4px solid rgb(var(--action));
+  content: "";
+  transform: translateY(-50%);
+}
+
+.project-map-legend-line--vertical {
+  width: 2px;
+  height: 0.9rem;
+}
+
+.project-map-legend-line--vertical::after {
+  top: auto;
+  right: 50%;
+  bottom: -1px;
+  border-top: 4px solid rgb(var(--action));
+  border-right: 3px solid transparent;
+  border-bottom: 0;
+  border-left: 3px solid transparent;
+  transform: translateX(50%);
+}
+
+.project-map-neighborhood-grid {
+  display: grid;
+  grid-template-areas:
+    ". . north . ."
+    ". . north-connector . ."
+    "west west-connector focus east-connector east"
+    ". . south-connector . ."
+    ". . south . .";
+  grid-template-rows: auto 1.5rem auto 1.5rem auto;
+  grid-template-columns:
+    minmax(8rem, 1fr) 1.75rem minmax(9rem, 1.15fr) 1.75rem
+    minmax(8rem, 1fr);
+  align-items: center;
+  padding: 0.9rem;
+  overflow: hidden;
+  border: 1px solid rgb(var(--border-subtle));
+  border-radius: 12px;
+  background: rgb(var(--surface-2));
+}
+
+.project-map-neighborhood-arm--north {
+  grid-area: north;
+}
+
+.project-map-neighborhood-arm--south {
+  grid-area: south;
+}
+
+.project-map-neighborhood-arm--west {
+  grid-area: west;
+}
+
+.project-map-neighborhood-arm--east {
+  grid-area: east;
+}
+
+.project-map-neighborhood-arm--north,
+.project-map-neighborhood-arm--south {
+  width: min(100%, 18rem);
+  justify-self: center;
+}
+
+.project-map-neighborhood-arm-label {
+  margin-bottom: 0.3rem;
+  text-align: center;
+}
+
+.project-map-neighborhood-nodes {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.project-map-neighborhood-node {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: 0.45rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgb(var(--border-default));
+  border-radius: 8px;
+  background: rgb(var(--surface));
+  box-shadow: 0 1px 1px rgb(var(--shadow) / 0.025);
+  text-align: left;
+}
+
+.project-map-neighborhood-node:hover,
+.project-map-neighborhood-node:focus-visible {
+  border-color: rgb(var(--action) / 0.55);
+  background: rgb(var(--accent) / 0.2);
+}
+
+.project-map-neighborhood-node:focus-visible {
+  outline: 2px solid rgb(var(--action));
+  outline-offset: 2px;
+}
+
+.project-map-neighborhood-relation,
+.project-map-neighborhood-more {
+  color: rgb(var(--action));
+}
+
+.project-map-neighborhood-more {
+  text-align: center;
+}
+
+.project-map-neighborhood-more:hover,
+.project-map-neighborhood-more:focus-visible {
+  background: rgb(var(--accent) / 0.35);
+}
+
+.project-map-neighborhood-empty {
+  min-height: 2.1rem;
+  padding: 0.55rem;
+  border: 1px dashed rgb(var(--border-default));
+  border-radius: 8px;
+  background: rgb(var(--surface) / 0.72);
+  text-align: center;
+}
+
+.project-map-neighborhood-focus {
+  z-index: 1;
+  grid-area: focus;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.55rem;
+  padding: 0.65rem;
+  border: 1px solid rgb(var(--action) / 0.58);
+  border-radius: 10px;
+  background: rgb(var(--accent));
+  box-shadow:
+    0 0 0 3px rgb(var(--accent) / 0.32),
+    0 5px 14px rgb(var(--action) / 0.08);
+}
+
+.project-map-neighborhood-connector {
+  position: relative;
+  justify-self: stretch;
+  background: rgb(var(--action));
+}
+
+.project-map-neighborhood-connector--west,
+.project-map-neighborhood-connector--east {
+  height: 2px;
+}
+
+.project-map-neighborhood-connector--west {
+  grid-area: west-connector;
+}
+
+.project-map-neighborhood-connector--east {
+  grid-area: east-connector;
+}
+
+.project-map-neighborhood-connector--west::after,
+.project-map-neighborhood-connector--east::after {
+  position: absolute;
+  top: 50%;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid rgb(var(--action));
+  content: "";
+  transform: translateY(-50%);
+}
+
+.project-map-neighborhood-connector--north,
+.project-map-neighborhood-connector--south {
+  width: 2px;
+  height: 100%;
+  justify-self: center;
+}
+
+.project-map-neighborhood-connector--north {
+  grid-area: north-connector;
+}
+
+.project-map-neighborhood-connector--south {
+  grid-area: south-connector;
+}
+
+.project-map-neighborhood-connector--north::after,
+.project-map-neighborhood-connector--south::after {
+  position: absolute;
+  right: 50%;
+  bottom: -1px;
+  width: 0;
+  height: 0;
+  border-top: 6px solid rgb(var(--action));
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  content: "";
+  transform: translateX(50%);
+}
+
+@container project-map-inspector (max-width: 600px) {
+  .project-map-neighborhood-grid {
+    grid-template-rows: auto 1rem auto 1rem auto;
+    grid-template-columns:
+      minmax(6.75rem, 1fr) 1.1rem minmax(8rem, 1.12fr) 1.1rem
+      minmax(6.75rem, 1fr);
+    padding: 0.65rem;
+  }
+
+  .project-map-neighborhood-node {
+    gap: 0.35rem;
+    padding: 0.36rem 0.4rem;
+  }
+
+  .project-map-neighborhood-focus {
+    gap: 0.4rem;
+    padding: 0.5rem;
+  }
+}
+
+.glass-panel {
+  background: rgb(var(--surface));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.glass-card {
+  background: rgb(var(--surface));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+#root > .items-center.justify-center > .max-w-md,
+#root > .items-center.justify-center > .max-w-lg {
+  position: relative;
+  max-height: calc(100vh - 4rem);
+  padding: clamp(1.75rem, 4vw, 2.5rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid rgb(var(--border-default));
+  border-radius: 12px;
+  background: rgb(var(--surface));
+  box-shadow:
+    0 1px 2px rgb(var(--shadow) / 0.04),
+    0 12px 32px rgb(var(--shadow) / 0.07);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+#root > .items-center.justify-center > .max-w-md::before,
+#root > .items-center.justify-center > .max-w-lg::before {
+  display: none;
+  content: "";
+  background: none;
+}
+
+.identity-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.9rem;
+  height: 2.9rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid rgb(var(--action) / 0.22);
+  border-radius: 8px;
+  background: rgb(var(--accent));
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.identity-mark::after {
+  display: none;
+  content: "";
+  background: none;
+  animation: none;
+}
+
+.empty-state-card {
+  position: relative;
+  width: min(100%, 34rem);
+  padding: 2.4rem 2.2rem 2.1rem;
+  overflow: hidden;
+  border: 1px solid rgb(var(--border-default));
+  border-radius: 12px;
+  background: rgb(var(--surface));
+  box-shadow:
+    0 1px 2px rgb(var(--shadow) / 0.035),
+    0 8px 24px rgb(var(--shadow) / 0.035);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.user-message {
+  border: 1px solid rgb(var(--action) / 0.22);
+  background: rgb(var(--accent));
+  box-shadow: none;
+}
+
+.provider-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.provider-card::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  content: "";
+  opacity: 0.35;
+  background: rgb(var(--action));
+  transition: opacity 180ms ease;
+}
+
+.provider-card[aria-checked="true"]::before {
+  opacity: 0.92;
+}
+
+.prompt-tile {
+  position: relative;
+  overflow: hidden;
+  text-align: left;
+}
+
+.prompt-tile::before {
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-right: 0.65rem;
+  content: "";
+  border-radius: 999px;
+  vertical-align: 0.06em;
+}
+
+.prompt-tile:nth-child(1)::before {
+  background: rgb(var(--action));
+  box-shadow: none;
+}
+
+.prompt-tile:nth-child(2)::before {
+  background: rgb(var(--action));
+  box-shadow: none;
+}
+
+.prompt-tile:nth-child(3)::before {
+  background: rgb(var(--action));
+  box-shadow: none;
+}
+
+.setup-progress {
+  height: 0.2rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(var(--border-subtle));
+}
+
+.setup-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgb(var(--action));
+  box-shadow: none;
+  transition: width 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bg-accent.text-white {
+  color: rgb(var(--on-action));
+  background-color: rgb(var(--action));
+  background-image: none;
+  box-shadow: none;
+}
+
+.bg-accent.text-white:hover {
+  background-color: rgb(var(--action-hover));
+  box-shadow: none;
+}
+
+[role="radio"][aria-checked="true"].bg-accent.text-white,
+.rounded-full.bg-accent.text-white {
+  color: rgb(var(--action));
+  background-color: rgb(var(--accent));
+}
+
+[role="radio"][aria-checked="true"].bg-accent.text-white:hover,
+.rounded-full.bg-accent.text-white:hover {
+  color: rgb(var(--action));
+  background-color: rgb(var(--accent));
+}
+
+.bg-accent.text-white .animate-spin {
+  border-color: rgb(var(--on-action) / 0.35);
+  border-top-color: rgb(var(--on-action));
+}
+
+.border-accent {
+  border-color: rgb(var(--action));
+}
+
+.animate-caret.bg-accent,
+.animate-dot-pulse.bg-accent,
+.animate-ping.bg-accent,
+[role="switch"] .bg-accent {
+  background-color: rgb(var(--action));
+}
+
+/* Small solid marks — status dots, the rule above a heading — are the ember
+   ink itself, not the tinted surface that sits behind a chip. Pills keep the
+   tint: their `.bg-accent.text-white` rule is more specific than this one. */
+[role="radio"] .bg-accent,
+.rounded-full.bg-accent,
+[class~="bg-accent/70"],
+[class~="bg-accent/60"] {
+  background-color: rgb(var(--action));
+}
+
+.bg-danger.text-white {
+  color: white;
+}
+
+textarea,
+input,
+select {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+button[class]:not(.rounded-full) {
+  border-radius: 8px;
+}
+
+button[class]:focus-visible,
+input[class]:focus-visible,
+select[class]:focus-visible,
+textarea[class]:focus-visible {
+  outline: 2px solid rgb(var(--action));
+  outline-offset: 2px;
+}
+
+::selection {
+  color: rgb(var(--fg));
+  background: rgb(var(--accent));
+}
+
+.text-accent {
+  color: rgb(var(--action));
+}
+
+.text-accent\/90 {
+  color: rgb(var(--action) / 0.9);
+}
+
+.text-accent\/70 {
+  color: rgb(var(--action) / 0.7);
+}
+
+[class~="focus:border-accent/40"]:focus,
+[class~="focus:border-accent/60"]:focus,
+[class~="focus:border-accent/70"]:focus {
+  border-color: rgb(var(--action));
+}
+
+.backdrop-blur-sm,
+.backdrop-blur-xl {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.shadow-inner,
+.shadow-white\/\[0\.025\] {
+  box-shadow: none;
+}
+
+[class~="border-white/5"],
+[class~="border-white/[0.055]"],
+[class~="border-white/[0.06]"],
+[class~="border-white/[0.07]"],
+[class~="border-white/[0.08]"] {
+  border-color: rgb(var(--border-subtle));
+}
+
+[class~="border-white/10"],
+[class~="border-white/15"],
+[class~="border-white/20"],
+[class~="border-white/30"] {
+  border-color: rgb(var(--border-default));
+}
+
+[class~="hover:border-white/15"]:hover,
+[class~="hover:border-white/20"]:hover {
+  border-color: rgb(var(--border-hover));
+}
+
+[class~="hover:border-white/[0.07]"]:hover {
+  border-color: rgb(var(--border-default));
+}
+
+/* Opaque `bg-white` means "a raised card / input", not the colour white —
+   it has to follow the theme like every other surface. */
+[class~="bg-white"] {
+  background-color: rgb(var(--surface));
+}
+
+[class~="bg-white/10"] {
+  background-color: rgb(var(--accent));
+}
+
+[class~="bg-white/[0.018]"],
+[class~="bg-white/[0.025]"],
+[class~="bg-white/[0.04]"],
+[class~="bg-white/[0.045]"],
+[class~="bg-white/[0.055]"],
+[class~="bg-white/[0.06]"] {
+  background-color: rgb(var(--surface-2));
+}
+
+[class~="bg-black/10"],
+[class~="bg-black/15"],
+[class~="bg-black/20"],
+[class~="bg-black/25"],
+[class~="bg-black/35"] {
+  background-color: rgb(var(--surface-2));
+}
+
+[class~="hover:bg-white/5"]:hover,
+[class~="hover:bg-white/[0.035]"]:hover,
+[class~="hover:bg-white/[0.055]"]:hover,
+[class~="hover:bg-white/[0.06]"]:hover,
+[class~="hover:bg-white/[0.07]"]:hover,
+[class~="hover:bg-white/[0.08]"]:hover,
+[class~="hover:bg-white/[0.09]"]:hover,
+[class~="focus:bg-black/35"]:focus {
+  background-color: rgb(var(--hover));
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgb(var(--ink-600) / 0.7);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--fg-dim) / 0.82);
+  background-clip: padding-box;
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .glass-bar,
+  .glass-panel,
+  .glass-card,
+  #root > .items-center.justify-center > .max-w-md,
+  #root > .items-center.justify-center > .max-w-lg,
+  .empty-state-card {
+    background-color: rgb(var(--ink-900) / 0.96);
+  }
+}
+
+@media (max-width: 1179px) {
+  .activity-panel {
+    position: absolute;
+    z-index: 20;
+    inset: 0.75rem 0.75rem 0.75rem auto;
+    width: min(20rem, calc(100% - 1.5rem));
+    margin: 0;
+    box-shadow:
+      -8px 0 24px rgb(var(--shadow) / 0.08),
+      0 1px 2px rgb(var(--shadow) / 0.04);
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-surface {
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
+    max-width: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .project-map-layout {
+    grid-template-columns: minmax(270px, 0.72fr) minmax(0, 1.28fr);
+  }
+}
+
+@media (max-height: 700px) {
+  .empty-state-card {
+    padding: 1.5rem 1.75rem;
+  }
+
+  .empty-state-card .identity-mark {
+    margin-bottom: 0.8rem;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .ambient-orb {
+    display: none;
+    opacity: 0;
+    animation: none;
+  }
+
+  .glass-bar,
+  .glass-panel,
+  .glass-card,
+  #root > .items-center.justify-center > .max-w-md,
+  #root > .items-center.justify-center > .max-w-lg,
+  .empty-state-card {
+    background: rgb(var(--surface));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .ambient-backdrop {
+    display: none;
+  }
+
+  .glass-bar,
+  .glass-panel,
+  .glass-card,
+  #root > .items-center.justify-center > .max-w-md,
+  #root > .items-center.justify-center > .max-w-lg,
+  .empty-state-card {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+}
+
+@keyframes spectrum-drift-a {
+  0% {
+    transform: translate3d(-3vw, -2vh, 0) scale(0.95);
+  }
+  100% {
+    transform: translate3d(12vw, 10vh, 0) scale(1.12);
+  }
+}
+
+@keyframes spectrum-drift-b {
+  0% {
+    transform: translate3d(5vw, -4vh, 0) scale(1.06);
+  }
+  100% {
+    transform: translate3d(-11vw, 9vh, 0) scale(0.94);
+  }
+}
+
+@keyframes shell-in {
+  from {
+    opacity: 0;
+    transform: scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes project-map-in {
+  from {
+    opacity: 0;
+    transform: translateX(22px) scale(0.994);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes spectrum-breathe {
+  0%,
+  100% {
+    opacity: 0.22;
+    transform: rotate(-8deg) scale(0.9);
+  }
+  50% {
+    opacity: 0.42;
+    transform: rotate(8deg) scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

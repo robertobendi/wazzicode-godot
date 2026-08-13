@@ -1,0 +1,74 @@
+{
+  "generatedAt": 1777377833055,
+  "identity": {
+    "projectPath": "/Users/Roberto/Repos/wazzicode-unity/tests/fixtures/sample-unity-project",
+    "isUnityProject": true,
+    "productName": "SampleGame",
+    "companyName": "SampleStudio",
+    "bundleIdentifier": "com.samplestudio.samplegame"
+  },
+  "engine": {
+    "unityVersion": "2022.3.42f1",
+    "unityRevision": "2022.3.42f1 (1234567890ab)",
+    "renderPipeline": "URP",
+    "inputSystem": "InputSystem",
+    "scriptingBackend": "Mono",
+    "defaultBuildTarget": "StandaloneOSX",
+    "packages": [
+      {
+        "name": "com.unity.render-pipelines.universal",
+        "version": "14.0.11"
+      },
+      {
+        "name": "com.unity.inputsystem",
+        "version": "1.7.0"
+      },
+      {
+        "name": "com.unity.textmeshpro",
+        "version": "3.0.6"
+      },
+      {
+        "name": "com.unity.ide.rider",
+        "version": "3.0.27"
+      }
+    ]
+  },
+  "assets": {
+    "scenes": [
+      "Assets/Scenes/Sample.unity"
+    ],
+    "prefabs": [],
+    "scripts": [
+      "Assets/Scripts/AudioManager.cs",
+      "Assets/Scripts/PlayerController.cs",
+      "Assets/Scripts/WeaponData.cs"
+    ],
+    "scriptableObjectAssets": [],
+    "materials": [],
+    "textures": [],
+    "audio": [],
+    "totalAssets": 5,
+    "scannedRoots": [
+      "Assets",
+      "Packages"
+    ]
+  },
+  "architecture": {
+    "managers": [
+      "Assets/Scripts/AudioManager.cs",
+      "Assets/Scripts/PlayerController.cs"
+    ],
+    "singletons": [
+      "Assets/Scripts/AudioManager.cs",
+      "Assets/Scripts/PlayerController.cs"
+    ],
+    "scriptableObjectTypes": [
+      "WeaponData"
+    ],
+    "monoBehaviours": 2,
+    "totalScripts": 3,
+    "hasObjectPooling": false,
+    "hasSaveSystem": false,
+    "hasAudioManager": true
+  }
+}

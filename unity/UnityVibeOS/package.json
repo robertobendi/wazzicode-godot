@@ -1,0 +1,13 @@
+{
+  "name": "com.uvibe.os",
+  "version": "0.5.2",
+  "displayName": "Unity Vibe OS",
+  "description": "Editor-side bridge for Unity Vibe OS. Gives the local Studio agent live project context and controlled editing through Unity APIs, with Undo and action logging.",
+  "unity": "2021.3",
+  "type": "tool",
+  "keywords": ["editor", "ai", "claude", "mcp", "tooling"],
+  "author": {
+    "name": "Unity Vibe OS"
+  },
+  "license": "MIT"
+}

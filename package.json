@@ -1,0 +1,27 @@
+{
+  "name": "unity-vibe-os",
+  "private": true,
+  "version": "0.5.2",
+  "type": "module",
+  "description": "Unity Vibe OS — local Unity-aware operating layer for AI-assisted Unity game development with Claude Code.",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.29.1",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "uvibe": "node apps/cli/bin/uvibe"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

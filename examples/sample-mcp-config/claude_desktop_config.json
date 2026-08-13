@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "unity-vibe-os": {
+      "command": "uvibe",
+      "args": ["serve"],
+      "env": {
+        "UVIBE_PROJECT": "/absolute/path/to/your/UnityProject"
+      }
+    }
+  }
+}

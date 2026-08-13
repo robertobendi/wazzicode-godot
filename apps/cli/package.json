@@ -1,0 +1,26 @@
+{
+  "name": "@uvibe/cli",
+  "version": "0.5.2",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "uvibe": "./bin/uvibe"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@uvibe/bridge-client": "workspace:*",
+    "@uvibe/core": "workspace:*",
+    "@uvibe/mcp-server": "workspace:*",
+    "@uvibe/project-brain": "workspace:*",
+    "@uvibe/safety": "workspace:*"
+  }
+}

@@ -1,0 +1,9 @@
+PlayerSettings:
+  productName: SampleGame
+  companyName: SampleStudio
+  bundleVersion: 0.1.0
+  applicationIdentifier:
+    Standalone: com.samplestudio.samplegame
+  scriptingBackend:
+    Standalone: 0
+  activeBuildTarget: 25

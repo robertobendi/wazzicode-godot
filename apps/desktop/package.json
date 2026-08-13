@@ -1,0 +1,43 @@
+{
+  "name": "@uvibe/desktop",
+  "private": true,
+  "version": "0.3.0",
+  "type": "module",
+  "description": "foundry-unity — chat-first desktop app for AI-assisted Unity work.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "bundle:uvibe": "node scripts/bundle-uvibe.mjs",
+    "bundle:sidecar": "node scripts/fetch-node-sidecar.mjs",
+    "bundle:whisper": "node scripts/fetch-whisper.mjs",
+    "bundle": "node scripts/bundle-uvibe.mjs && node scripts/fetch-node-sidecar.mjs && node scripts/fetch-whisper.mjs"
+  },
+  "//tauri-build": "Package with: `pnpm --filter @uvibe/desktop bundle` (bundles uvibe.cjs + fetches the host Node sidecar + vendors the offline dictation model) then `pnpm --filter @uvibe/desktop tauri build -- --config src-tauri/tauri.bundle.conf.json`. In CI, run fetch-node-sidecar.mjs once per --target before each matrix build; fetch-whisper.mjs is host-agnostic and only needs to run once.",
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-dialog": "^2.0.1",
+    "@tauri-apps/plugin-opener": "^2.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "esbuild": "^0.21.5",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

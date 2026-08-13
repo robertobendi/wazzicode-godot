@@ -1,0 +1,72 @@
+[package]
+name = "unity-vibe-studio"
+version = "0.3.0"
+description = "foundry-unity — chat-first desktop app for AI-assisted Unity work"
+authors = ["Roberto Bendinelli"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "unity_vibe_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-log = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time", "fs", "process", "io-util"] }
+thiserror = "1"
+dirs = "5"
+# Strips the Windows `\\?\` verbatim prefix that std::fs::canonicalize adds —
+# tools (git, node) can't parse it. Transparent pass-through on Unix.
+dunce = "1"
+log = "0.4"
+nanoid = "0.4"
+# Store the app-managed Claude OAuth token in the native OS credential store.
+# v3.6.3 is the latest release compatible with this crate's Rust 1.77 MSRV.
+keyring = { version = "=3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+# --- Used by later phases; declared now so the skeleton pins them and the
+# --- build stays green as those phases land.
+# Hidden-PTY driver for the `claude setup-token` pairing flow (Phase 4).
+portable-pty = "0.8"
+# Auth-token verify probes + the bridge status poller (Phase 1 / bridge.rs).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Regex-scan the setup-token stream for the OAuth URL + code prompt (Phase 4).
+regex = "1"
+# Stable project-hash for the app-managed --mcp-config file name (Phase 6).
+sha2 = "0.10"
+# Read the OS clipboard from Rust for the resource funnel (Phase 3).
+# arboard handles image+text; clipboard-files reads the file list; png encodes
+# arboard's raw RGBA into a real file the agent can read.
+arboard = "3"
+clipboard-files = "0.1"
+png = "0.17"
+# Decode the bridge's base64 screenshot payload into a real PNG on disk that
+# the webview can render through Tauri's asset protocol (bridge.rs / capture).
+base64 = "0.22"
+# Timestamp staged inbox files as `yyyymmdd-hhmmss` (resource funnel, Phase 3).
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+# Unix process-group signalling for graceful chat cancellation (SIGTERM the
+# Claude process group, then SIGKILL) — kills the MCP server child too.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+# Dependencies compile at full speed even though the app crate is
+# size-optimized, to keep runtime hot paths fast.
+[profile.release.package."*"]
+opt-level = 3
