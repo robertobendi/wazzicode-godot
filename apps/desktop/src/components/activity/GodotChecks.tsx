@@ -3,6 +3,7 @@ import { useGodotDiagnostics } from "@/hooks/useGodotDiagnostics";
 import {
   collectGodotDebugRun,
   collectGodotDiagnostics,
+  collectGodotTestRun,
   formatGodotEvidenceGaps,
   type GodotDebugRun,
 } from "@/lib/godotDiagnostics";
@@ -41,6 +42,8 @@ export default function GodotChecks({
     [messages],
   );
   const debugRun = useMemo(() => collectGodotDebugRun(messages), [messages]);
+  const testRun = useMemo(() => collectGodotTestRun(messages), [messages]);
+  const tests = testMetric(testRun);
   const scenes = sceneState(snapshot);
   const imports = importState(snapshot);
 
@@ -112,9 +115,9 @@ export default function GodotChecks({
           />
           <Metric
             label="Tests"
-            value="—"
-            detail="not configured"
-            tone="muted"
+            value={tests.value}
+            detail={tests.detail}
+            tone={tests.tone}
           />
         </div>
 
@@ -181,7 +184,7 @@ export default function GodotChecks({
               </ul>
             )}
             <div className="mt-3 rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-[10px] leading-relaxed text-fg-dim">
-              Tests are reported as not configured until this project supplies a real runner. Verification still checks headless import and every GDScript file.
+              {testStatusText(testRun)}
             </div>
           </>
         )}
@@ -359,6 +362,39 @@ function formatDuration(milliseconds: number): string {
   return milliseconds < 1000
     ? `${Math.round(milliseconds)} ms`
     : `${(milliseconds / 1000).toFixed(milliseconds % 1000 === 0 ? 0 : 1)} s`;
+}
+
+function testMetric(testRun: ReturnType<typeof collectGodotTestRun>): {
+  value: string;
+  detail: string;
+  tone: "success" | "warning" | "muted";
+} {
+  if (!testRun) return { value: "—", detail: "not run", tone: "muted" };
+  if (testRun.status === "running") {
+    return { value: "…", detail: "running", tone: "warning" };
+  }
+  if (testRun.status === "invalid") {
+    return { value: "!", detail: "unreadable", tone: "warning" };
+  }
+  if (testRun.verdict === "pass") {
+    return { value: "Pass", detail: formatDuration(testRun.durationMs), tone: "success" };
+  }
+  return {
+    value: testRun.verdict === "timeout" ? "Time" : "Fail",
+    detail: formatDuration(testRun.durationMs),
+    tone: "warning",
+  };
+}
+
+function testStatusText(testRun: ReturnType<typeof collectGodotTestRun>): string {
+  if (!testRun) {
+    return "No project test run has been observed. Verification still checks headless import and every GDScript file.";
+  }
+  if (testRun.status === "running") return "The project-owned Godot test runner is active.";
+  if (testRun.status === "invalid") return testRun.message;
+  return testRun.verdict === "pass"
+    ? `${testRun.runnerPath} passed independently in ${formatDuration(testRun.durationMs)}.`
+    : `${testRun.runnerPath} ${testRun.verdict === "timeout" ? "timed out" : "failed"} after ${formatDuration(testRun.durationMs)}.`;
 }
 
 function formatNumber(value: number): string {

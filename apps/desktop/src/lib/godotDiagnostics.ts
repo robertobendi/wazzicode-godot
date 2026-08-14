@@ -104,6 +104,19 @@ export type GodotDebugRun =
   | { status: "complete"; updatedAt: number; evidence: GodotDebugEvidence }
   | { status: "invalid"; updatedAt: number; message: string };
 
+export type GodotTestRun =
+  | { status: "running"; updatedAt: number }
+  | {
+      status: "complete";
+      updatedAt: number;
+      verdict: "pass" | "fail" | "timeout";
+      runnerPath: string;
+      durationMs: number;
+      exitCode: number | null;
+      timedOut: boolean;
+    }
+  | { status: "invalid"; updatedAt: number; message: string };
+
 export const MAX_MCP_RESULT_TEXT_CHARS = 200_000;
 
 const PRIMARY_DEBUG_RETENTION = {
@@ -155,8 +168,14 @@ export function isGodotDebugRunActivity(name: string): boolean {
   return normalizedToolName(name) === "godot_debug_run";
 }
 
+export function isGodotTestRunActivity(name: string): boolean {
+  return normalizedToolName(name) === "godot_test_run";
+}
+
 export function shouldRetainGodotRawResult(name: string): boolean {
-  return isGodotVerifyActivity(name) || isGodotDebugRunActivity(name);
+  return isGodotVerifyActivity(name)
+    || isGodotDebugRunActivity(name)
+    || isGodotTestRunActivity(name);
 }
 
 export function formatGodotEvidenceGaps(
@@ -312,6 +331,65 @@ export function collectGodotDebugRun(
       latest.status === "error"
         ? "The debug run failed without structured evidence."
         : "The debug run returned unreadable evidence.",
+  };
+}
+
+export function collectGodotTestRun(
+  messages: readonly ChatMessage[],
+): GodotTestRun | null {
+  let latest:
+    | { raw?: string; status: string; endedAt: number }
+    | undefined;
+
+  for (const message of messages) {
+    for (const activity of message.activities) {
+      if (!isGodotTestRunActivity(activity.name)) continue;
+      const endedAt = activity.endedAt ?? activity.startedAt;
+      if (!latest || endedAt >= latest.endedAt) {
+        latest = {
+          raw: activity.resultRaw?.slice(0, MAX_MCP_RESULT_TEXT_CHARS),
+          status: activity.status,
+          endedAt,
+        };
+      }
+    }
+  }
+
+  if (!latest) return null;
+  if (latest.status === "running") {
+    return { status: "running", updatedAt: latest.endedAt };
+  }
+  const payload = latest.raw ? parseEnvelope(latest.raw) : null;
+  const verdict = payload ? string(payload.verdict) : "";
+  const runnerPath = payload ? string(payload.runnerPath) : "";
+  const durationMs = payload ? integer(payload.durationMs, 0) : null;
+  const exitCode = payload?.exitCode === null
+    ? null
+    : payload ? integer(payload.exitCode) : null;
+  const timedOut = payload ? boolean(payload.timedOut) : null;
+  if (
+    !["pass", "fail", "timeout"].includes(verdict)
+    || !runnerPath
+    || durationMs === null
+    || (payload?.exitCode !== null && exitCode === null)
+    || timedOut === null
+  ) {
+    return {
+      status: "invalid",
+      updatedAt: latest.endedAt,
+      message: latest.status === "error"
+        ? "The project test run failed without structured evidence."
+        : "The project test run returned unreadable evidence.",
+    };
+  }
+  return {
+    status: "complete",
+    updatedAt: latest.endedAt,
+    verdict: verdict as "pass" | "fail" | "timeout",
+    runnerPath,
+    durationMs,
+    exitCode,
+    timedOut,
   };
 }
 

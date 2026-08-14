@@ -3,8 +3,10 @@ import type { ChatMessage } from "@/types/chat";
 import {
   collectGodotDebugRun,
   collectGodotDiagnostics,
+  collectGodotTestRun,
   formatGodotEvidenceGaps,
   isGodotDebugRunActivity,
+  isGodotTestRunActivity,
   isGodotVerifyActivity,
   parseGodotDebugEvidence,
   shouldRetainGodotRawResult,
@@ -178,16 +180,58 @@ describe("collectGodotDiagnostics", () => {
 });
 
 describe("Godot diagnostic activity selectors", () => {
-  it("keeps exact selectors separate while retaining both structured results", () => {
+  it("keeps exact selectors separate while retaining structured results", () => {
     const verify = "mcp__godot-vibe-os__godot_verify";
     const debug = "mcp__godot-vibe-os__godot_debug_run";
+    const test = "mcp__godot-vibe-os__godot_test_run";
     expect(isGodotVerifyActivity(verify)).toBe(true);
     expect(isGodotVerifyActivity(debug)).toBe(false);
     expect(isGodotDebugRunActivity(debug)).toBe(true);
     expect(isGodotDebugRunActivity(verify)).toBe(false);
+    expect(isGodotTestRunActivity(test)).toBe(true);
+    expect(isGodotTestRunActivity(verify)).toBe(false);
     expect(shouldRetainGodotRawResult(verify)).toBe(true);
     expect(shouldRetainGodotRawResult(debug)).toBe(true);
+    expect(shouldRetainGodotRawResult(test)).toBe(true);
     expect(shouldRetainGodotRawResult("godot_debug_runner")).toBe(false);
+  });
+});
+
+describe("collectGodotTestRun", () => {
+  it("reports an observed project test pass independently", () => {
+    const result = collectGodotTestRun([
+      message({
+        verdict: "pass",
+        runnerPath: "res://tests/run_tests.gd",
+        durationMs: 25_832,
+        exitCode: 0,
+        timedOut: false,
+      }, { name: "mcp__godot-vibe-os__godot_test_run" }),
+    ]);
+    expect(result).toEqual({
+      status: "complete",
+      updatedAt: 11,
+      verdict: "pass",
+      runnerPath: "res://tests/run_tests.gd",
+      durationMs: 25_832,
+      exitCode: 0,
+      timedOut: false,
+    });
+  });
+
+  it("surfaces running and rejects malformed test evidence", () => {
+    const running = message(undefined, {
+      name: "godot_test_run",
+      status: "running",
+      startedAt: 24,
+    });
+    expect(collectGodotTestRun([running])).toEqual({
+      status: "running",
+      updatedAt: 24,
+    });
+    expect(collectGodotTestRun([
+      message({ verdict: "pass" }, { name: "godot_test_run" }),
+    ])).toMatchObject({ status: "invalid" });
   });
 });
 
