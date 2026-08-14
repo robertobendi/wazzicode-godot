@@ -29,6 +29,7 @@ async function project(): Promise<string> {
 }
 
 interface DebugBridgeOptions {
+  source?: BridgeClient["source"];
   existing?: boolean;
   staleEvents?: DebugEvent[];
   events?: DebugEvent[];
@@ -39,6 +40,7 @@ interface DebugBridgeOptions {
   replaceBeforeStop?: boolean;
   activeScene?: string;
   stopSignalDelaySnapshots?: number;
+  snapshotDelayMs?: number;
 }
 
 function debugBridge(options: DebugBridgeOptions = {}): { bridge: BridgeClient; calls: BridgeMethod[]; callParams: Array<{ method: BridgeMethod; params: Record<string, unknown> }> } {
@@ -56,7 +58,7 @@ function debugBridge(options: DebugBridgeOptions = {}): { bridge: BridgeClient; 
   let captureRequested = false;
   const generatedSamples: DebugSample[] = [];
   const bridge: BridgeClient = {
-    source: "mock",
+    source: options.source ?? "mock",
     async call<T>(method: BridgeMethod, params: Record<string, unknown> = {}): Promise<BridgeResponse<T>> {
       calls.push(method);
       callParams.push({ method, params });
@@ -88,6 +90,7 @@ function debugBridge(options: DebugBridgeOptions = {}): { bridge: BridgeClient; 
         return success({ playing: false, scenePath: "", stopped: true } as T);
       }
       if (method === BRIDGE_METHODS.debugSnapshot) {
+        if (options.snapshotDelayMs) await new Promise((resolve) => setTimeout(resolve, options.snapshotDelayMs));
         if (playing) observationSnapshots += 1;
         else if (runStarted) postStopSnapshots += 1;
         if (options.snapshotFailure && playing && observationSnapshots === 2) {
@@ -298,6 +301,49 @@ describe("godot_debug_run", () => {
     const snapshots = callParams.filter((call) => call.method === BRIDGE_METHODS.debugSnapshot);
     expect(snapshots.filter((call) => call.params.requestScreenshot === true)).toHaveLength(1);
     expect(snapshots.findIndex((call) => call.params.requestScreenshot === true)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("starts the observation window after a delayed launched runtime connects", async () => {
+    const root = await project();
+    const { bridge, callParams } = debugBridge({
+      source: "godot_bridge",
+      connectAfterSnapshots: 2,
+      snapshotDelayMs: 80,
+    });
+    const envelope = await executeTool(godotDebugRun, { observeMs: 250 }, buildContext({ bridgeOverride: bridge, projectPath: root }));
+
+    expect(envelope.ok).toBe(true);
+    if (envelope.ok) {
+      expect(envelope.data).toMatchObject({
+        verdict: "clean",
+        lifecycle: { startedByTool: true, stopped: true, playingAfter: false },
+        runtime: { connected: true, runId: "run-1" },
+        screenshot: { available: true },
+      });
+      expect(envelope.data.performance.sampleCount).toBeGreaterThanOrEqual(2);
+    }
+    const snapshots = callParams.filter((call) => call.method === BRIDGE_METHODS.debugSnapshot);
+    const captureIndex = snapshots.findIndex((call) => call.params.requestScreenshot === true);
+    expect(captureIndex).toBeGreaterThanOrEqual(5);
+    expect(snapshots.filter((call) => call.params.requestScreenshot === true)).toHaveLength(1);
+  });
+
+  it("bounds a launch handshake and guarded-stops an identified unconnected run", async () => {
+    const root = await project();
+    const { bridge, callParams } = debugBridge({ connectAfterSnapshots: 100 });
+    const envelope = await executeTool(godotDebugRun, { observeMs: 250, capture: false }, buildContext({ bridgeOverride: bridge, projectPath: root }));
+
+    expect(envelope.ok).toBe(true);
+    if (envelope.ok) {
+      expect(envelope.data).toMatchObject({
+        verdict: "unverified",
+        summary: expect.stringContaining("did not connect within 10000ms"),
+        lifecycle: { startedByTool: true, stopRequested: true, stopped: true, playingAfter: false },
+        performance: { sampleCount: 0 },
+      });
+    }
+    const stop = callParams.find((call) => call.method === BRIDGE_METHODS.playStop);
+    expect(stop?.params).toEqual({ expectedRunId: "run-1" });
   });
 
   it("captures after observation without treating capture-induced frame time as performance evidence", async () => {

@@ -22,6 +22,9 @@ const DebugRunShape = {
   targetFps: z.number().finite().positive().max(1_000).optional(),
 };
 
+const LAUNCH_RUNTIME_HANDSHAKE_MS = 10_000;
+const MOCK_PHASE_POLL_LIMIT = 32;
+
 export interface DebugRunIssue {
   severity: "error" | "warning";
   source: "editor" | "runtime";
@@ -195,7 +198,10 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
     let ownedRunId = "";
     let stopped = false;
     const stopRequested = startedByTool && stopAfter;
-    const deadline = Date.now() + observeMs;
+    const handshakeDeadline = startedByTool ? Date.now() + LAUNCH_RUNTIME_HANDSHAKE_MS : 0;
+    let observationDeadline = startedByTool ? 0 : Date.now() + observeMs;
+    let handshakePolls = 0;
+    let observationPolls = 0;
     let polls = 0;
 
     try {
@@ -218,13 +224,34 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
           break;
         }
         const mustContinue = page.moreEvents || page.moreSamples;
-        if (ctx.bridge.source === "mock") {
-          if (!mustContinue && polls >= 4) break;
-          if (polls >= 32) break;
+        if (startedByTool && observationDeadline === 0) {
+          handshakePolls += 1;
+          if (snapshot.data.runtimeConnected && snapshot.data.runId.length > 0) {
+            observationDeadline = Date.now() + observeMs;
+            observationPolls = 1;
+          } else {
+            const handshakeExpired = ctx.bridge.source === "mock"
+              ? handshakePolls >= MOCK_PHASE_POLL_LIMIT
+              : Date.now() >= handshakeDeadline;
+            if (handshakeExpired) {
+              observationFailure = `The runtime probe did not connect within ${LAUNCH_RUNTIME_HANDSHAKE_MS}ms after launch.`;
+              break;
+            }
+            if (!mustContinue && ctx.bridge.source !== "mock") {
+              await delay(Math.min(200, Math.max(1, handshakeDeadline - Date.now())));
+            }
+            continue;
+          }
         } else {
-          if (Date.now() >= deadline && !page.moreEvents && !page.moreSamples) break;
+          observationPolls += 1;
+        }
+        if (ctx.bridge.source === "mock") {
+          if (!mustContinue && observationPolls >= 4) break;
+          if (observationPolls >= MOCK_PHASE_POLL_LIMIT) break;
+        } else {
+          if (Date.now() >= observationDeadline && !page.moreEvents && !page.moreSamples) break;
           if (!page.moreEvents && !page.moreSamples) {
-            await delay(Math.min(200, Math.max(1, deadline - Date.now())));
+            await delay(Math.min(200, Math.max(1, observationDeadline - Date.now())));
           }
         }
       }
