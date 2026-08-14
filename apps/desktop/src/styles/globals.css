@@ -5,7 +5,7 @@
 /*
  * Theme tokens, shared with Hightower so the suite reads as one system: same
  * neutral ramp, same status hues, same border tiers. Foundry differs only in
- * the accent — ember orange where Hightower is achromatic.
+ * the accent — Godot blue where Hightower is achromatic.
  *
  * `:root` is dark (the default). `.theme-light` flips the same properties.
  * RGB triplets so Tailwind's `<alpha-value>` opacity modifiers keep working.
@@ -25,13 +25,13 @@
   --fg-muted: 170 176 186;
   --fg-dim: 100 108 120;
 
-  /* Inverted roles: --accent is the tinted fill, --action the bright ink that
-     sits on top of it, so a peach-on-white chip becomes ember-on-brown. */
-  --accent: 60 38 25;
-  --accent-hover: 74 47 30;
-  --action: 240 145 92;
-  --action-hover: 250 168 120;
-  --on-action: 26 18 12;
+  /* Inverted roles: --accent is the quiet blueprint tint, --action the
+     brighter editor-blue ink or control surface that sits on top of it. */
+  --accent: 24 50 68;
+  --accent-hover: 30 61 82;
+  --action: 111 190 239;
+  --action-hover: 137 205 246;
+  --on-action: 9 24 34;
   /* Shadows and modal scrims: the dark side of the palette, not the ink. */
   --shadow: 0 0 0;
   --scrim-alpha: 0.55;
@@ -39,7 +39,7 @@
   --success: 125 197 152;
   --warning: 232 200 116;
   --danger: 224 110 110;
-  --godot: 89 172 222;
+  --godot: 111 190 239;
 
   --surface: 16 18 22;
   --surface-2: 24 27 32;
@@ -48,11 +48,11 @@
   --border-hover: 50 55 64;
   --hover: 30 34 40;
 
-  --spectrum-blue: 60 38 25;
-  --spectrum-violet: 60 38 25;
-  --spectrum-rose: 60 38 25;
-  --spectrum-amber: 60 38 25;
-  --spectrum-cyan: 60 38 25;
+  --spectrum-blue: 24 50 68;
+  --spectrum-violet: 24 50 68;
+  --spectrum-rose: 24 50 68;
+  --spectrum-amber: 24 50 68;
+  --spectrum-cyan: 24 50 68;
 }
 
 .theme-light {
@@ -69,10 +69,10 @@
   --fg-muted: 72 78 86;
   --fg-dim: 108 114 124;
 
-  --accent: 254 215 170;
-  --accent-hover: 255 230 199;
-  --action: 184 67 31;
-  --action-hover: 150 54 25;
+  --accent: 218 239 251;
+  --accent-hover: 226 244 253;
+  --action: 43 118 168;
+  --action-hover: 34 100 145;
   --on-action: 255 255 255;
   --shadow: 18 20 24;
   --scrim-alpha: 0.28;
@@ -80,7 +80,7 @@
   --success: 47 137 90;
   --warning: 168 123 0;
   --danger: 196 61 61;
-  --godot: 46 120 164;
+  --godot: 43 118 168;
 
   --surface: 255 255 255;
   --surface-2: 244 245 247;
@@ -89,11 +89,11 @@
   --border-hover: 198 202 208;
   --hover: 239 240 243;
 
-  --spectrum-blue: 254 215 170;
-  --spectrum-violet: 254 215 170;
-  --spectrum-rose: 254 215 170;
-  --spectrum-amber: 254 215 170;
-  --spectrum-cyan: 254 215 170;
+  --spectrum-blue: 218 239 251;
+  --spectrum-violet: 218 239 251;
+  --spectrum-rose: 218 239 251;
+  --spectrum-amber: 218 239 251;
+  --spectrum-cyan: 218 239 251;
 }
 
 html,
@@ -892,7 +892,7 @@ button:not(:disabled):active {
   background-color: rgb(var(--action));
 }
 
-/* Small solid marks — status dots, the rule above a heading — are the ember
+/* Small solid marks — status dots, the rule above a heading — are the blue
    ink itself, not the tinted surface that sits behind a chip. Pills keep the
    tint: their `.bg-accent.text-white` rule is more specific than this one. */
 [role="radio"] .bg-accent,
