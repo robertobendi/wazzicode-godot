@@ -386,8 +386,9 @@ try {
   await testDiscoveryDirectorySymlinkContainment();
   await testDiscoveryFileSymlinkContainment();
   await testOwnershipSafeCleanup();
+  await testPrimaryDiscoveryRecovery();
   await testRandomTokenFailure();
-  console.log("Godot addon integration passed: auth, 22 RPC methods, inherited imports, undoable edits, runtime debug evidence, save, capture containment, play, and discovery lifecycle.");
+  console.log("Godot addon integration passed: auth, 22 RPC methods, inherited imports, undoable edits, runtime debug evidence, save, capture containment, play, and multi-editor discovery lifecycle.");
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (editorOutput) process.stderr.write(`\nGodot output (tail):\n${editorOutput.slice(-8000)}\n`);
@@ -414,12 +415,12 @@ try {
 }
 
 
-function request(method, requestPath, payload, token) {
+function request(method, requestPath, payload, token, target = discovery) {
   const body = payload === undefined ? undefined : Buffer.from(JSON.stringify(payload));
   return new Promise((resolve, reject) => {
     const req = http.request({
-      host: discovery.host,
-      port: discovery.port,
+      host: target.host,
+      port: target.port,
       path: requestPath,
       method,
       timeout: 30_000,
@@ -603,6 +604,37 @@ async function testOwnershipSafeCleanup() {
 }
 
 
+async function testPrimaryDiscoveryRecovery() {
+  const scenario = createProjectScenario("multi-editor-recovery");
+  const scenarioDiscovery = path.join(scenario.project, ".godot", "godot-vibe-os", "bridge.json");
+  let primary;
+  let secondary;
+  try {
+    primary = spawnScenarioEditor(scenario.project);
+    const original = await waitForDiscoveryOwner(primary.child, scenarioDiscovery, primary.child.pid, 20_000);
+    secondary = spawnScenarioEditor(scenario.project, ["--quit-after", "20", "--max-fps", "5"]);
+    const temporary = await waitForDiscoveryOwner(secondary.child, scenarioDiscovery, secondary.child.pid, 20_000);
+    assert.equal(temporary.port !== original.port, true, "the secondary editor must own a distinct bridge");
+    assert.equal(temporary.token !== original.token, true, "each editor must use an independent bridge token");
+    await waitForExit(secondary.child, 15_000);
+    const restored = await waitForDiscoveryOwner(primary.child, scenarioDiscovery, primary.child.pid, 5_000);
+    assert.equal(restored.port === original.port, true, "the surviving primary bridge port must be restored");
+    assert.equal(restored.token === original.token, true, "the surviving primary bridge token must be restored");
+    if (process.platform !== "win32") {
+      assert.equal(statSync(scenarioDiscovery).mode & 0o777, 0o600, "recovered discovery must remain owner-only");
+    }
+    const health = await request("GET", "/health", undefined, original.token, restored);
+    assert.equal(health.status, 200, "the recovered primary bridge must remain reachable");
+    assert.equal(primary.output().includes(original.token), false, "the primary token must not appear in editor output");
+    assert.equal(secondary.output().includes(temporary.token), false, "the secondary token must not appear in editor output");
+  } finally {
+    await terminateChild(secondary?.child);
+    await terminateChild(primary?.child);
+    rmSync(scenario.root, { recursive: true, force: true });
+  }
+}
+
+
 async function testRandomTokenFailure() {
   const scenario = createProjectScenario("rng-failure");
   const serverPath = path.join(scenario.project, "addons", "godot_vibe_os", "bridge_server.gd");
@@ -665,6 +697,22 @@ async function waitForDiscoveryPath(child, file, timeoutMs) {
     await delay(50);
   }
   throw new Error("Timed out waiting for scenario discovery.");
+}
+
+
+async function waitForDiscoveryOwner(child, file, ownerPid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`Godot editor ${ownerPid} exited before owning discovery (code ${child.exitCode}).`);
+    if (existsSync(file)) {
+      try {
+        const value = JSON.parse(readFileSync(file, "utf8"));
+        if (value.pid === ownerPid && value.port > 0 && value.token) return value;
+      } catch {}
+    }
+    await delay(50);
+  }
+  throw new Error(`Timed out waiting for editor ${ownerPid} to own discovery.`);
 }
 
 

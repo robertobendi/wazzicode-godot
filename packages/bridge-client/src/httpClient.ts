@@ -196,7 +196,8 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
 
   function call<T>(
     method: BridgeMethod,
-    params: Record<string, unknown> = {}
+    params: Record<string, unknown> = {},
+    allowDiscoveryHandoff = true,
   ): Promise<BridgeResponse<T>> {
     const body = makeBridgeRequest(method, params);
     const payload = JSON.stringify(body);
@@ -213,6 +214,19 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
       };
       const finishTransportFailure = (message: string) => {
         const classify = () => {
+          if (allowDiscoveryHandoff && explicitPort === undefined && projectPath) {
+            cached = null;
+            const replacement = target();
+            const ownerChanged = replacement.bridgeKnown && (
+              replacement.port !== t.port
+              || replacement.godotPid !== t.godotPid
+              || replacement.token !== t.token
+            );
+            if (ownerChanged) {
+              call<T>(method, params, false).then(finish);
+              return;
+            }
+          }
           const editorExited = t.godotPid !== undefined && processHasExited(t.godotPid);
           const code = t.bridgeKnown && !editorExited ? "GODOT_RELOADING" : "GODOT_NOT_CONNECTED";
           finish({

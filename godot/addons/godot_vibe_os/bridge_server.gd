@@ -9,6 +9,9 @@ const PROTOCOL_VERSION := "1.1"
 const MAX_REQUEST_BYTES := 4 * 1024 * 1024
 const CLIENT_TIMEOUT_MS := 20_000
 const TOKEN_BYTES := 24
+const DISCOVERY_REPAIR_INTERVAL_MS := 100
+const DISCOVERY_HEARTBEAT_INTERVAL_MS := 1_000
+const DISCOVERY_LEASE_MS := 5_000
 const UNIX_PLATFORMS := ["iOS", "Linux", "FreeBSD", "NetBSD", "OpenBSD", "BSD", "macOS"]
 
 var _editor: EditorInterface
@@ -16,9 +19,12 @@ var _router: RefCounted
 var _server := TCPServer.new()
 var _clients: Array[Dictionary] = []
 var _started_ticks := 0
+var _started_at_ms := 0
 var _port := 0
 var _discovery_path := ""
 var _token := ""
+var _last_discovery_check_ticks := 0
+var _last_discovery_heartbeat_ticks := 0
 
 
 func _init(editor: EditorInterface, debugger) -> void:
@@ -50,6 +56,9 @@ func start() -> void:
 		return
 	_token = Marshalls.raw_to_base64(token_bytes)
 	_started_ticks = Time.get_ticks_msec()
+	_started_at_ms = int(Time.get_unix_time_from_system() * 1000.0)
+	_last_discovery_check_ticks = _started_ticks
+	_last_discovery_heartbeat_ticks = _started_ticks
 	set_process(true)
 	if not _write_discovery():
 		set_process(false)
@@ -71,6 +80,9 @@ func stop() -> void:
 	_port = 0
 	_delete_discovery()
 	_token = ""
+	_started_at_ms = 0
+	_last_discovery_check_ticks = 0
+	_last_discovery_heartbeat_ticks = 0
 
 
 func uptime_ms() -> int:
@@ -80,6 +92,7 @@ func uptime_ms() -> int:
 
 
 func _process(_delta: float) -> void:
+	_repair_discovery_if_needed()
 	while _server.is_connection_available():
 		var peer := _server.take_connection()
 		if peer != null:
@@ -261,7 +274,7 @@ func _send_json(peer: StreamPeerTCP, status: int, payload: Dictionary) -> void:
 	peer.disconnect_from_host()
 
 
-func _write_discovery() -> bool:
+func _write_discovery(replace_live_owner := true) -> bool:
 	var directory := ProjectSettings.globalize_path("res://.godot/godot-vibe-os")
 	var discovery_path := directory.path_join("bridge.json")
 	if _path_has_link(discovery_path):
@@ -303,7 +316,8 @@ func _write_discovery() -> bool:
 		"godotVersion": Engine.get_version_info().get("string", ""),
 		"pid": OS.get_process_id(),
 		"protocolVersion": PROTOCOL_VERSION,
-		"startedAt": int(Time.get_unix_time_from_system() * 1000.0),
+		"startedAt": _started_at_ms,
+		"heartbeatAt": int(Time.get_unix_time_from_system() * 1000.0),
 		"token": _token,
 	}))
 	var write_error := file.get_error()
@@ -316,13 +330,83 @@ func _write_discovery() -> bool:
 		DirAccess.remove_absolute(temp_path)
 		push_error("[GodotVibeOS] Bridge discovery path became unsafe before publication.")
 		return false
+	if not replace_live_owner and _discovery_has_live_owner(discovery_path):
+		DirAccess.remove_absolute(temp_path)
+		return true
 	var rename_error := DirAccess.rename_absolute(temp_path, discovery_path)
 	if rename_error != OK:
 		DirAccess.remove_absolute(temp_path)
 		push_error("[GodotVibeOS] Could not publish bridge discovery: %s" % error_string(rename_error))
 		return false
 	_discovery_path = discovery_path
+	_last_discovery_heartbeat_ticks = Time.get_ticks_msec()
 	return true
+
+
+func _repair_discovery_if_needed() -> void:
+	if _discovery_path.is_empty() or not _server.is_listening() or _token.is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	if now - _last_discovery_check_ticks < DISCOVERY_REPAIR_INTERVAL_MS:
+		return
+	_last_discovery_check_ticks = now
+	if _path_has_link(_discovery_path):
+		return
+	if _discovery_has_live_owner(_discovery_path):
+		if now - _last_discovery_heartbeat_ticks >= DISCOVERY_HEARTBEAT_INTERVAL_MS:
+			var current = _read_discovery(_discovery_path)
+			if _discovery_owned_by_self(current):
+				_write_discovery()
+		return
+	_write_discovery(false)
+
+
+func _discovery_has_live_owner(discovery_path: String) -> bool:
+	if not FileAccess.file_exists(discovery_path) or _path_has_link(discovery_path):
+		return false
+	var file := FileAccess.open(discovery_path, FileAccess.READ)
+	if file == null:
+		return true
+	var parsed = JSON.parse_string(file.get_as_text())
+	file.close()
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return false
+	var owner_pid := int(parsed.get("pid", 0))
+	var owner_token = parsed.get("token", "")
+	if (
+		owner_pid <= 0
+		or typeof(owner_token) != TYPE_STRING
+		or owner_token.length() < TOKEN_BYTES
+		or parsed.get("host", "") != HOST
+		or int(parsed.get("port", 0)) <= 0
+		or int(parsed.get("port", 0)) >= 65536
+		or parsed.get("protocolVersion", "") != PROTOCOL_VERSION
+		or parsed.get("projectPath", "") != ProjectSettings.globalize_path("res://").trim_suffix("/")
+	):
+		return false
+	if owner_pid == OS.get_process_id():
+		return owner_token == _token
+	var heartbeat_at := int(parsed.get("heartbeatAt", parsed.get("startedAt", 0)))
+	var now := int(Time.get_unix_time_from_system() * 1000.0)
+	return heartbeat_at > 0 and heartbeat_at <= now + DISCOVERY_LEASE_MS and now - heartbeat_at <= DISCOVERY_LEASE_MS
+
+
+func _read_discovery(discovery_path: String):
+	var file := FileAccess.open(discovery_path, FileAccess.READ)
+	if file == null:
+		return null
+	var parsed = JSON.parse_string(file.get_as_text())
+	file.close()
+	return parsed
+
+
+func _discovery_owned_by_self(parsed) -> bool:
+	return (
+		typeof(parsed) == TYPE_DICTIONARY
+		and int(parsed.get("pid", 0)) == OS.get_process_id()
+		and not _token.is_empty()
+		and parsed.get("token", "") == _token
+	)
 
 
 func _delete_discovery() -> void:

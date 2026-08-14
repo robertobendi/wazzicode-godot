@@ -468,6 +468,39 @@ describe("authenticated HTTP bridge", () => {
 });
 
 describe("transport recovery", () => {
+  it("retries once through a recovered primary discovery after a temporary editor exits", async () => {
+    const project = await temporaryProject();
+    const respondHealthy = (request: http.IncomingMessage, response: http.ServerResponse) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { id: string };
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({
+          id: body.id,
+          ok: true,
+          result: healthResult(project),
+          error: null,
+          meta: { godotVersion: "4.7.1", projectPath: project, durationMs: 1 },
+        }));
+      });
+    };
+    const primary = await listen(respondHealthy);
+    const temporary = await listen(respondHealthy);
+    const primaryToken = "primary-editor-token-0123456789abcdef";
+    const temporaryToken = "temporary-editor-token-0123456789abcd";
+    await writeDiscovery(project, temporary.port, { token: temporaryToken, pid: 92_002 });
+    const client = createHttpBridgeClient({ projectPath: project, timeoutMs: 500 });
+    expect((await client.call("system.health")).ok).toBe(true);
+
+    await writeDiscovery(project, primary.port, { token: primaryToken, pid: 92_001 });
+    await closeServer(temporary.server);
+    servers.splice(servers.indexOf(temporary.server), 1);
+
+    const recovered = await client.call("system.health");
+    expect(recovered.ok).toBe(true);
+  });
+
   it("distinguishes an undiscovered editor from a known addon reload", async () => {
     const temporary = await listen((_request, response) => response.end());
     const deadPort = temporary.port;
