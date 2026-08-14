@@ -33,6 +33,7 @@ interface DebugBridgeOptions {
   staleEvents?: DebugEvent[];
   events?: DebugEvent[];
   samples?: DebugSample[];
+  captureSamples?: DebugSample[];
   snapshotFailure?: boolean;
   connectAfterSnapshots?: number;
   replaceBeforeStop?: boolean;
@@ -52,6 +53,7 @@ function debugBridge(options: DebugBridgeOptions = {}): { bridge: BridgeClient; 
   let activeRunId = playing ? "run-1" : "stale-run";
   let replacementApplied = false;
   let postStopSnapshots = 0;
+  let captureRequested = false;
   const generatedSamples: DebugSample[] = [];
   const bridge: BridgeClient = {
     source: "mock",
@@ -97,18 +99,23 @@ function debugBridge(options: DebugBridgeOptions = {}): { bridge: BridgeClient; 
           const cursor = generatedSamples.length + 1;
           generatedSamples.push(sample(cursor, { timestampMs: 1_000 + cursor * 400 }));
         }
+        if (params.requestScreenshot === true && runtimeConnected) {
+          screenshotId = "capture-1";
+          captureRequested = true;
+        }
         const eventPool = [
           ...(options.staleEvents ?? []),
           ...(runtimeEverConnected ? (options.events ?? []) : []),
         ];
-        const samplePool = runtimeEverConnected ? (options.samples ?? generatedSamples) : [];
+        const samplePool = runtimeEverConnected
+          ? [...(options.samples ?? generatedSamples), ...(captureRequested ? (options.captureSamples ?? []) : [])]
+          : [];
         const sinceEventCursor = typeof params.sinceEventCursor === "number" ? params.sinceEventCursor : 0;
         const sinceSampleCursor = typeof params.sinceSampleCursor === "number" ? params.sinceSampleCursor : 0;
         const maxEvents = typeof params.maxEvents === "number" ? params.maxEvents : 100;
         const maxSamples = typeof params.maxSamples === "number" ? params.maxSamples : 120;
         const events = eventPool.filter((event) => event.cursor > sinceEventCursor).slice(0, maxEvents);
         const samples = samplePool.filter((entry) => entry.cursor > sinceSampleCursor).slice(0, maxSamples);
-        if (params.requestScreenshot === true && runtimeConnected) screenshotId = "capture-1";
         const snapshot: DebugSnapshotResult = {
           runId: activeRunId,
           sessionId: runStarted ? 1 : null,
@@ -232,6 +239,28 @@ describe("godot_debug_run", () => {
     }
   });
 
+  it("omits Godot's held startup-interval timing maxima before two seconds of runtime", async () => {
+    const root = await project();
+    const startup = [572, 825, 1_078, 1_329, 1_588, 1_845].map((timestampMs, index) => sample(index + 1, {
+      timestampMs,
+      fps: index < 2 ? 1 : 107,
+      processMs: index < 2 ? 0 : 252.861,
+      physicsMs: index < 2 ? 0 : 91.4,
+    }));
+    const { bridge } = debugBridge({ samples: startup });
+    const envelope = await executeTool(godotDebugRun, { observeMs: 250 }, buildContext({ bridgeOverride: bridge, projectPath: root }));
+
+    expect(envelope.ok).toBe(true);
+    if (envelope.ok) {
+      expect(envelope.data.verdict).toBe("clean");
+      expect(envelope.data.performance.sampleCount).toBe(6);
+      expect(envelope.data.performance).not.toHaveProperty("fps");
+      expect(envelope.data.performance).not.toHaveProperty("frameMs");
+      expect(envelope.data.performance).not.toHaveProperty("physicsMs");
+      expect(envelope.data.performance.findings).toEqual([]);
+    }
+  });
+
   it("best-effort stops a run it launched when snapshot collection fails", async () => {
     const root = await project();
     const { bridge, calls } = debugBridge({ snapshotFailure: true });
@@ -269,6 +298,34 @@ describe("godot_debug_run", () => {
     const snapshots = callParams.filter((call) => call.method === BRIDGE_METHODS.debugSnapshot);
     expect(snapshots.filter((call) => call.params.requestScreenshot === true)).toHaveLength(1);
     expect(snapshots.findIndex((call) => call.params.requestScreenshot === true)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("captures after observation without treating capture-induced frame time as performance evidence", async () => {
+    const root = await project();
+    const stable = [
+      sample(1, { timestampMs: 1_000, fps: 60, processMs: 8 }),
+      sample(2, { timestampMs: 2_100, fps: 60, processMs: 8 }),
+    ];
+    const captureSpike = sample(3, { timestampMs: 2_200, fps: 112, processMs: 193.296 });
+    const { bridge, callParams } = debugBridge({ samples: stable, captureSamples: [captureSpike] });
+    const envelope = await executeTool(godotDebugRun, { observeMs: 250 }, buildContext({ bridgeOverride: bridge, projectPath: root }));
+
+    expect(envelope.ok).toBe(true);
+    if (envelope.ok) {
+      expect(envelope.data.verdict).toBe("clean");
+      expect(envelope.data.performance).toMatchObject({
+        sampleCount: 2,
+        frameMs: { p50: 8, p95: 8, max: 8 },
+        findings: [],
+      });
+      expect(envelope.data.screenshot).toMatchObject({ available: true, width: 640, height: 360, bytes: 8 });
+      expect(envelope.data.pngBase64).toBe("iVBORw0KGgo=");
+    }
+    const snapshots = callParams.filter((call) => call.method === BRIDGE_METHODS.debugSnapshot);
+    const captureIndex = snapshots.findIndex((call) => call.params.requestScreenshot === true);
+    expect(captureIndex).toBeGreaterThan(1);
+    expect(snapshots.slice(0, captureIndex).every((call) => call.params.requestScreenshot !== true)).toBe(true);
+    expect(snapshots.filter((call) => call.params.requestScreenshot === true)).toHaveLength(1);
   });
 
   it("treats maxEvents as a hard total and keeps storm output compact", async () => {

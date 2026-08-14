@@ -312,14 +312,22 @@ try {
   }, 10_000, "retained stopped debug evidence");
   assert.equal(retainedDebug.runId, debugSnapshot.runId);
   assert.equal(retainedDebug.playing, false);
+  assert.equal(retainedDebug.runtimeConnected, false, "a stopped runtime must not remain connected into the next launch");
   assert.ok(retainedDebug.events.some((event) => event.message.includes("FOUNDRY_DEBUG_FIXTURE_WARNING")));
 
   await rpc("play.run", { mode: "current" });
+  const sequentialSnapshots = [];
   let guardedRun;
   await waitUntil(async () => {
     guardedRun = await rpc("debug.snapshot", { maxEvents: 1, maxSamples: 1 });
+    sequentialSnapshots.push(guardedRun);
     return guardedRun.playing && guardedRun.runId && guardedRun.runId !== retainedDebug.runId;
   }, 10_000, "first guarded run identity");
+  assert.equal(
+    sequentialSnapshots.some((snapshot) => snapshot.runId === retainedDebug.runId && snapshot.runtimeConnected),
+    false,
+    "retained prior-run evidence must not appear connected while the next debugger session starts",
+  );
   await rpc("play.stop", { expectedRunId: guardedRun.runId });
   await rpc("play.run", { mode: "main" });
   let replacementRun;

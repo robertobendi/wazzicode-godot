@@ -205,28 +205,47 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
           break;
         }
         const eventPageLimit = eventPageSize(state, maxEvents);
-        const snapshot = await takeSnapshot(ctx, state, eventPageLimit, observeMs, capture);
+        const snapshot = await takeSnapshot(ctx, state, eventPageLimit, observeMs, false, true);
         if (!snapshot.ok) {
           observationFailure = snapshot.error.message;
           break;
         }
-        const page = consumeSnapshot(state, snapshot.data, false, maxEvents, eventPageLimit, samplePageSize(observeMs));
+        const page = consumeSnapshot(state, snapshot.data, false, true, maxEvents, eventPageLimit, samplePageSize(observeMs));
         if (snapshot.data.runtime?.scenePath) scenePath = snapshot.data.runtime.scenePath;
         polls += 1;
         if (!snapshot.data.playing) {
           addSyntheticIssue(state, "warning", "runtime", "runtime_stopped", "The game stopped before the observation window ended.");
           break;
         }
-        const captureNeedsRequest = capture && state.runtimeConnectedEver && !state.screenshotRequested;
-        const mustContinue = page.moreEvents || page.moreSamples || captureNeedsRequest || state.capturePending;
+        const mustContinue = page.moreEvents || page.moreSamples;
         if (ctx.bridge.source === "mock") {
           if (!mustContinue && polls >= 4) break;
           if (polls >= 32) break;
         } else {
-          if (Date.now() >= deadline && !page.moreEvents && !page.moreSamples && !captureNeedsRequest) break;
-          if (!page.moreEvents && !page.moreSamples && !captureNeedsRequest) {
+          if (Date.now() >= deadline && !page.moreEvents && !page.moreSamples) break;
+          if (!page.moreEvents && !page.moreSamples) {
             await delay(Math.min(200, Math.max(1, deadline - Date.now())));
           }
+        }
+      }
+
+      if (!observationFailure && capture && state.runtimeConnectedEver && state.latestPlaying) {
+        const captureDeadline = Date.now() + 2_000;
+        for (let capturePoll = 0; capturePoll < 40; capturePoll += 1) {
+          const eventPageLimit = eventPageSize(state, maxEvents);
+          const snapshot = await takeSnapshot(ctx, state, eventPageLimit, observeMs, true, false);
+          if (!snapshot.ok) {
+            observationFailure = snapshot.error.message;
+            break;
+          }
+          const page = consumeSnapshot(state, snapshot.data, false, false, maxEvents, eventPageLimit, 1);
+          if (snapshot.data.runtime?.scenePath) scenePath = snapshot.data.runtime.scenePath;
+          polls += 1;
+          const captureFinished = Boolean(state.screenshot) || Boolean(state.captureError) || !snapshot.data.playing;
+          if (captureFinished && !page.moreEvents) break;
+          const withinCaptureBudget = ctx.bridge.source === "mock" ? capturePoll < 7 : Date.now() < captureDeadline;
+          if (!withinCaptureBudget) break;
+          if (!page.moreEvents && ctx.bridge.source !== "mock") await delay(50);
         }
       }
     } catch (error) {
@@ -236,8 +255,8 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
         if (!state.latestRunId) {
           try {
             const eventPageLimit = eventPageSize(state, maxEvents);
-            const guardSnapshot = await takeSnapshot(ctx, state, eventPageLimit, observeMs, false);
-            if (guardSnapshot.ok) consumeSnapshot(state, guardSnapshot.data, false, maxEvents, eventPageLimit, samplePageSize(observeMs));
+            const guardSnapshot = await takeSnapshot(ctx, state, eventPageLimit, observeMs, false, false);
+            if (guardSnapshot.ok) consumeSnapshot(state, guardSnapshot.data, false, false, maxEvents, eventPageLimit, 1);
           } catch {
             // Cleanup below remains fail-closed when the run identity cannot be established.
           }
@@ -264,12 +283,12 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
       const postStopDeadline = Date.now() + 2_000;
       for (let finalPoll = 0; finalPoll < 600; finalPoll += 1) {
         const eventPageLimit = eventPageSize(state, maxEvents);
-        const finalSnapshot = await takeSnapshot(ctx, state, eventPageLimit, observeMs, false);
+        const finalSnapshot = await takeSnapshot(ctx, state, eventPageLimit, observeMs, false, false);
         if (!finalSnapshot.ok) {
           if (!observationFailure) observationFailure = finalSnapshot.error.message;
           break;
         }
-        const page = consumeSnapshot(state, finalSnapshot.data, stopRequested && (stopAccepted || stopped), maxEvents, eventPageLimit, samplePageSize(observeMs));
+        const page = consumeSnapshot(state, finalSnapshot.data, stopRequested && (stopAccepted || stopped), false, maxEvents, eventPageLimit, 1);
         if (stopRequested && ownedRunId && finalSnapshot.data.runId === ownedRunId && finalSnapshot.data.stoppedAtMs !== null) {
           stopped = true;
           stopFailure = "";
@@ -382,10 +401,11 @@ async function takeSnapshot(
   maxEvents: number,
   observeMs: number,
   requestCapture: boolean,
+  collectPerformanceSamples: boolean,
 ): Promise<ToolEnvelope<DebugSnapshotResult>> {
   const requestScreenshot = requestCapture && state.runtimeConnectedEver && !state.screenshotRequested;
   if (requestScreenshot) state.screenshotRequested = true;
-  const maxSamples = samplePageSize(observeMs);
+  const maxSamples = collectPerformanceSamples ? samplePageSize(observeMs) : 1;
   return bridgeCall(ctx.bridge, BRIDGE_METHODS.debugSnapshot, {
     ...(state.eventCursor !== undefined ? { sinceEventCursor: state.eventCursor } : {}),
     ...(state.sampleCursor !== undefined ? { sinceSampleCursor: state.sampleCursor } : {}),
@@ -400,6 +420,7 @@ function consumeSnapshot(
   state: ObservationState,
   snapshot: DebugSnapshotResult,
   afterToolStop: boolean,
+  collectPerformanceSamples: boolean,
   totalEventLimit: number,
   eventPageLimit: number,
   maxSamples: number,
@@ -420,11 +441,13 @@ function consumeSnapshot(
       state.events.push(event);
     }
   }
-  for (const sample of snapshot.samples) {
-    const key = `${runKey}:${sample.cursor}`;
-    if (!state.sampleKeys.has(key)) {
-      state.sampleKeys.add(key);
-      state.samples.push(sample);
+  if (collectPerformanceSamples) {
+    for (const sample of snapshot.samples) {
+      const key = `${runKey}:${sample.cursor}`;
+      if (!state.sampleKeys.has(key)) {
+        state.sampleKeys.add(key);
+        state.samples.push(sample);
+      }
     }
   }
   const previousEventCursor = state.eventCursor ?? 0;
@@ -438,16 +461,18 @@ function consumeSnapshot(
     state.truncatedEvents += Math.max(0, snapshot.eventCursor - skippedFromCursor - gapAlreadyMissing);
   }
   const moreEvents = !eventLimitReached && snapshot.events.length >= eventPageLimit && lastEventCursor !== undefined && lastEventCursor < snapshot.eventCursor;
-  const moreSamples = snapshot.samples.length >= maxSamples && lastSampleCursor !== undefined && lastSampleCursor < snapshot.sampleCursor;
+  const moreSamples = collectPerformanceSamples && snapshot.samples.length >= maxSamples && lastSampleCursor !== undefined && lastSampleCursor < snapshot.sampleCursor;
   state.eventCursor = eventLimitReached ? snapshot.eventCursor : moreEvents ? lastEventCursor : snapshot.eventCursor;
-  state.sampleCursor = moreSamples ? lastSampleCursor : snapshot.sampleCursor;
+  state.sampleCursor = collectPerformanceSamples && moreSamples ? lastSampleCursor : snapshot.sampleCursor;
   state.runtimeConnectedEver ||= snapshot.runtimeConnected;
   state.latestPlaying = snapshot.playing;
   state.latestRuntime = snapshot.runtime ?? state.latestRuntime;
   state.missedEvents += snapshot.missedEvents;
-  state.missedSamples += snapshot.missedSamples;
+  if (collectPerformanceSamples) state.missedSamples += snapshot.missedSamples;
   state.droppedEvents = Math.max(state.droppedEvents, snapshot.droppedEvents - state.baselineDroppedEvents, 0);
-  state.droppedSamples = Math.max(state.droppedSamples, snapshot.droppedSamples - state.baselineDroppedSamples, 0);
+  if (collectPerformanceSamples) {
+    state.droppedSamples = Math.max(state.droppedSamples, snapshot.droppedSamples - state.baselineDroppedSamples, 0);
+  }
   if (snapshot.breaked && !afterToolStop) {
     addSyntheticIssue(state, "warning", "runtime", "debugger_break", "The game paused in the debugger during the observation window.");
   }
@@ -549,13 +574,15 @@ function summarizePerformance(samples: DebugSample[], targetFps: number): DebugR
   const values = <K extends keyof DebugSample>(key: K): number[] => samples
     .map((sample) => sample[key])
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  const firstSampleAt = samples.reduce((earliest, sample) => Math.min(earliest, sample.timestampMs), Number.POSITIVE_INFINITY);
-  const fpsValues = samples
-    .filter((sample) => sample.timestampMs - firstSampleAt >= 1_000)
+  const stableTimingSamples = samples.filter((sample) => sample.timestampMs >= 2_000);
+  const stableTimingValues = <K extends "processMs" | "physicsMs">(key: K): number[] => stableTimingSamples
+    .map((sample) => sample[key])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const fpsValues = stableTimingSamples
     .map((sample) => sample.fps)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  const frameValues = values("processMs");
-  const physicsValues = values("physicsMs");
+  const frameValues = stableTimingValues("processMs");
+  const physicsValues = stableTimingValues("physicsMs");
   const memoryValues = values("memoryBytes");
   const nodeValues = values("nodeCount");
   const orphanValues = values("orphanNodeCount");

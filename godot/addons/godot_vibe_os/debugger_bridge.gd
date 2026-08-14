@@ -160,6 +160,7 @@ func _session_stopped(session_id: int) -> void:
 		return
 	_drain_editor_logs()
 	_stopped_at = Time.get_ticks_msec()
+	_runtime_connected = false
 	_breaked = false
 	if _capture_pending:
 		_capture_pending = false
