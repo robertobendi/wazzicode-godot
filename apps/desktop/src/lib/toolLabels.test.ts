@@ -15,6 +15,9 @@ describe("Godot tool labels", () => {
     expect(toolLabel("mcp__godot-vibe-os__godot_read_script")).toBe(
       "Reading a Godot text resource",
     );
+    expect(toolLabel("mcp__godot-vibe-os__godot_debug_run")).toBe(
+      "Observing runtime evidence",
+    );
   });
 
   it("normalizes Codex's server key", () => {

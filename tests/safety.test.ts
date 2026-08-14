@@ -96,6 +96,7 @@ describe("Godot tool gating", () => {
     expect(writeTargetOf("godot_create_script")).toBe("script");
     expect(writeTargetOf("godot_refresh_filesystem")).toBe("editor");
     expect(writeTargetOf("godot_run_project")).toBe("editor");
+    expect(writeTargetOf("godot_debug_run")).toBe("editor");
     expect(writeTargetOf("godot_get_scene_tree")).toBeUndefined();
     expect(writeTargetOf("some_scene_word")).toBeUndefined();
     expect(isWriteTool("godot_save_scene")).toBe(true);

@@ -71,6 +71,7 @@ async function addonSource(): Promise<string> {
     'script="plugin.gd"',
   ].join("\n") + "\n", "utf8");
   await writeFile(path.join(source, "plugin.gd"), "@tool\nextends EditorPlugin\n", "utf8");
+  await writeFile(path.join(source, "runtime_probe.gd"), "extends Node\n", "utf8");
   return source;
 }
 
@@ -206,6 +207,7 @@ describe("gvibe init", () => {
       expect(contents).toContain("godot_orient");
       expect(contents).toContain("godot_reflect");
       expect(contents).toContain("godot_verify");
+      expect(contents).toContain("godot_debug_run");
       expect(contents).toContain("<!-- END godot-vibe-os -->");
     }
   });
@@ -251,6 +253,7 @@ describe("gvibe install-addon", () => {
       source,
       destination: path.join(project, "addons", "godot_vibe_os"),
       enabled: true,
+      runtimeProbeConfigured: true,
       projectFileChanged: true,
     });
     await access(path.join(project, "addons", "godot_vibe_os", "plugin.cfg"));
@@ -258,11 +261,32 @@ describe("gvibe install-addon", () => {
     let projectFile = await readFile(path.join(project, "project.godot"), "utf8");
     expect(projectFile).toContain("[editor_plugins]");
     expect(projectFile).toContain('enabled=PackedStringArray("res://addons/godot_vibe_os/plugin.cfg")');
+    expect(projectFile).toContain("[autoload]");
+    expect(projectFile).toContain('FoundryRuntimeProbe="*res://addons/godot_vibe_os/runtime_probe.gd"');
 
     const second = await runInstallAddon(options(project, { json: true }), args);
     expect(JSON.parse(second.stdout!)).toMatchObject({ enabled: true, projectFileChanged: false });
     projectFile = await readFile(path.join(project, "project.godot"), "utf8");
     expect(projectFile.match(/res:\/\/addons\/godot_vibe_os\/plugin\.cfg/g)).toHaveLength(1);
+    expect(projectFile.match(/^FoundryRuntimeProbe="\*res:\/\/addons\/godot_vibe_os\/runtime_probe\.gd"$/gm)).toHaveLength(1);
+  });
+
+  it("rejects a conflicting runtime probe autoload before copying or mutating the project", async () => {
+    const project = await godotProject();
+    const projectFilePath = path.join(project, "project.godot");
+    const before = (await readFile(projectFilePath, "utf8")) + '\n[autoload]\n\nFoundryRuntimeProbe="*res://custom/runtime_probe.gd"\n';
+    await writeFile(projectFilePath, before, "utf8");
+    const destination = path.join(project, "addons", "godot_vibe_os");
+    await mkdir(destination, { recursive: true });
+    await writeFile(path.join(destination, "keep.txt"), "original", "utf8");
+    const source = await addonSource();
+
+    const result = await runInstallAddon(options(project), parsed("install-addon", { source }));
+
+    expect(result).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("already exists") });
+    expect(await readFile(projectFilePath, "utf8")).toBe(before);
+    expect(await readdir(destination)).toEqual(["keep.txt"]);
+    expect(await readFile(path.join(destination, "keep.txt"), "utf8")).toBe("original");
   });
 
   it("adds itself to an existing plugin list without removing other addons", () => {
@@ -307,6 +331,20 @@ describe("gvibe install-addon", () => {
     const result = await runInstallAddon(options(project), parsed("install-addon", { source: path.join(project, "missing") }));
     expect(result).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("Could not locate") });
     expect(await readFile(path.join(project, "project.godot"), "utf8")).toBe(before);
+  });
+
+  it("rejects an older addon source without the runtime probe before any project mutation", async () => {
+    const project = await godotProject();
+    const projectFilePath = path.join(project, "project.godot");
+    const before = await readFile(projectFilePath, "utf8");
+    const partialSource = await temporaryDirectory("gvibe-partial-addon-");
+    await writeFile(path.join(partialSource, "plugin.cfg"), "[plugin]\n", "utf8");
+
+    const result = await runInstallAddon(options(project), parsed("install-addon", { source: partialSource }));
+
+    expect(result).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("runtime_probe.gd") });
+    expect(await readFile(projectFilePath, "utf8")).toBe(before);
+    await expect(access(path.join(project, "addons"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects an addon parent symlink without writing outside the project", async () => {
@@ -462,12 +500,30 @@ describe("gvibe doctor mock", () => {
     expect(report).toMatchObject({
       project: { path: project, valid: true, name: "Test Platformer" },
       config: { exists: true },
-      godotAddon: { detected: true, enabled: true },
+      godotAddon: { detected: true, enabled: true, runtimeProbeConfigured: true },
       bridge: { reachable: false, state: "mock", host: "127.0.0.1", port: 38588 },
       brain: { exists: true, stale: false },
       ok: true,
       suggestions: [],
     });
+  });
+
+  it("fails readiness when FoundryRuntimeProbe is not configured as an autoload", async () => {
+    const project = await godotProject();
+    const source = await addonSource();
+    await runInit(options(project));
+    await runInstallAddon(options(project), parsed("install-addon", { source }));
+    await runBrain(options(project), parsed("brain"));
+    const projectFile = path.join(project, "project.godot");
+    const contents = await readFile(projectFile, "utf8");
+    await writeFile(projectFile, contents.replace(/^FoundryRuntimeProbe=.*\n?/m, ""), "utf8");
+
+    const result = await runDoctor(options(project, { mock: true, json: true }));
+
+    expect(result.exitCode).toBe(1);
+    const report = JSON.parse(result.stdout!);
+    expect(report).toMatchObject({ godotAddon: { detected: true, enabled: true, runtimeProbeConfigured: false }, ok: false });
+    expect(report.suggestions).toContain("Re-run `gvibe install-addon` to configure FoundryRuntimeProbe.");
   });
 
   it("reports concrete repairs for an uninitialized project", async () => {

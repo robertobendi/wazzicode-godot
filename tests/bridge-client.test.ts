@@ -143,6 +143,14 @@ const validBridgeResults = {
   "play.run": { playing: true, scenePath: "res://scenes/main.tscn", started: true, requestedMode: "main" },
   "play.stop": { playing: false, scenePath: "", stopped: true },
   "play.status": { playing: false, scenePath: "" },
+  "debug.snapshot": {
+    runId: "run-1", sessionId: 1, runtimeConnected: true, playing: true, breaked: false,
+    startedAtMs: 1_000, stoppedAtMs: null, eventCursor: 0, sampleCursor: 1,
+    firstEventCursor: 0, firstSampleCursor: 1, missedEvents: 0, missedSamples: 0,
+    events: [], samples: [{ cursor: 1, timestampMs: 1_100, fps: 60, processMs: 8, physicsMs: 2, memoryBytes: 1_024, objectCount: 20, nodeCount: 10, orphanNodeCount: 0, drawCalls: 12 }],
+    droppedEvents: 0, droppedSamples: 0, runtime: { scenePath: "res://scenes/main.tscn", rootName: "Main", rootType: "Node2D", nodeCount: 10, pid: 123 },
+    screenshotId: "", screenshot: null, capturePending: false, captureError: null,
+  },
 } satisfies Record<BridgeMethod, unknown>;
 
 describe("bridge discovery", () => {
@@ -533,6 +541,7 @@ describe("transport recovery", () => {
     expect(timeoutForMethod("filesystem.scan")).toBe(125_000);
     expect(timeoutForMethod("resource.getDependencies")).toBe(60_000);
     expect(timeoutForMethod("play.run")).toBe(45_000);
+    expect(timeoutForMethod("debug.snapshot")).toBe(30_000);
     expect(timeoutForMethod("viewport.capture3D")).toBe(30_000);
     expect(timeoutForMethod("scene.getTree")).toBe(20_000);
   });

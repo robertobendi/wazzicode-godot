@@ -34,7 +34,7 @@ import type { StreamDraft } from "./streamMapper";
 import { codexItemLabel, codexMcpName, toolLabel } from "./toolLabels";
 import {
   boundMcpResultText,
-  isGodotDiagnosticActivity,
+  shouldRetainGodotRawResult,
 } from "./godotDiagnostics";
 
 type Raw = Record<string, any>;
@@ -230,7 +230,7 @@ function activityResult(item: Raw, type: string): string | undefined {
 }
 
 function activityRawResult(item: Raw, type: string, name: string) {
-  if (type !== "mcp_tool_call" || !isGodotDiagnosticActivity(name)) return {};
+  if (type !== "mcp_tool_call" || !shouldRetainGodotRawResult(name)) return {};
   return boundMcpResultText(resultText(item.result) ?? errorText(item.error));
 }
 

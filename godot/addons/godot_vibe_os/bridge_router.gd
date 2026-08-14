@@ -6,11 +6,13 @@ const MAX_PROPERTY_ITEMS := 200
 
 var _editor: EditorInterface
 var _uptime: Callable
+var _debugger
 
 
-func _init(editor: EditorInterface, uptime: Callable) -> void:
+func _init(editor: EditorInterface, uptime: Callable, debugger) -> void:
 	_editor = editor
 	_uptime = uptime
+	_debugger = debugger
 
 
 func health() -> Dictionary:
@@ -66,9 +68,11 @@ func dispatch(method: String, params: Dictionary) -> Dictionary:
 		"play.run":
 			return _play_run(params)
 		"play.stop":
-			return _play_stop()
+			return _play_stop(params)
 		"play.status":
 			return _play_status()
+		"debug.snapshot":
+			return _debug_snapshot(params)
 		_:
 			return _fail("METHOD_NOT_FOUND", "Unknown bridge method '%s'." % method)
 
@@ -588,9 +592,15 @@ func _play_run(params: Dictionary) -> Dictionary:
 	return _ok(result)
 
 
-func _play_stop() -> Dictionary:
+func _play_stop(params: Dictionary) -> Dictionary:
 	var was_playing := _editor.is_playing_scene()
 	if was_playing:
+		var expected_run_id := _string_param(params, "expectedRunId", "")
+		if not expected_run_id.is_empty():
+			if _debugger == null or not _debugger.has_method("is_run_active"):
+				return _fail("FEATURE_UNAVAILABLE", "The runtime debugger bridge cannot verify the requested run.")
+			if not _debugger.is_run_active(expected_run_id):
+				return _fail("RUN_CHANGED", "The active game is not the run this request started; it was left running.")
 		_editor.stop_playing_scene()
 	var result := _play_status_payload()
 	if result.playing:
@@ -601,6 +611,14 @@ func _play_stop() -> Dictionary:
 
 func _play_status() -> Dictionary:
 	return _ok(_play_status_payload())
+
+
+func _debug_snapshot(params: Dictionary) -> Dictionary:
+	if _debugger == null or not _debugger.has_method("snapshot"):
+		return _fail("FEATURE_UNAVAILABLE", "The runtime debugger bridge is unavailable.")
+	var result: Dictionary = _debugger.snapshot(params)
+	result["playing"] = _editor.is_playing_scene()
+	return _ok(result)
 
 
 func _play_status_payload() -> Dictionary:

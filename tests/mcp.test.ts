@@ -29,7 +29,7 @@ async function project(): Promise<string> {
   return root;
 }
 
-async function diagnosticProject(enabled = true): Promise<string> {
+async function diagnosticProject(enabled = true, runtimeProbeConfigured = true): Promise<string> {
   const root = await project();
   await writeFile(path.join(root, "project.godot"), [
     "config_version=5",
@@ -37,9 +37,11 @@ async function diagnosticProject(enabled = true): Promise<string> {
     "[editor_plugins]",
     `${enabled ? "" : "; "}enabled=PackedStringArray(\"res://addons/godot_vibe_os/plugin.cfg\")`,
     "",
+    ...(runtimeProbeConfigured ? ["[autoload]", "", 'FoundryRuntimeProbe="*res://addons/godot_vibe_os/runtime_probe.gd"', ""] : []),
   ].join("\n"), "utf8");
   await mkdir(path.join(root, "addons", "godot_vibe_os"), { recursive: true });
   await writeFile(path.join(root, "addons", "godot_vibe_os", "plugin.cfg"), "[plugin]\n", "utf8");
+  await writeFile(path.join(root, "addons", "godot_vibe_os", "runtime_probe.gd"), "extends Node\n", "utf8");
   const discovery = path.join(root, BRIDGE_DISCOVERY_REL);
   await mkdir(path.dirname(discovery), { recursive: true });
   await writeFile(discovery, JSON.stringify({
@@ -96,16 +98,17 @@ const EXPECTED_TOOLS = [
   "godot_find_in_file",
   "godot_create_script",
   "godot_apply_text_edits",
+  "godot_debug_run",
   "godot_run_project",
   "godot_stop_project",
   "godot_get_play_status",
 ] as const;
 
 describe("Godot MCP registry", () => {
-  it("registers exactly 31 focused, uniquely named Godot tools", () => {
+  it("registers exactly 32 focused, uniquely named Godot tools", () => {
     const names = allTools.map((tool) => tool.name);
     expect(names).toEqual(EXPECTED_TOOLS);
-    expect(new Set(names).size).toBe(31);
+    expect(new Set(names).size).toBe(32);
     expect(names.every((name) => name.startsWith("godot_"))).toBe(true);
     expect(names.some((name) => /unity|prefab|gameobject/i.test(name))).toBe(false);
   });
@@ -122,6 +125,7 @@ describe("Godot MCP registry", () => {
     expect(allTools.find((tool) => tool.name === "godot_apply_text_edits")).toMatchObject({ write: true, writeTarget: "script" });
     expect(allTools.find((tool) => tool.name === "godot_open_scene")).toMatchObject({ write: true, writeTarget: "editor" });
     expect(allTools.find((tool) => tool.name === "godot_run_project")).toMatchObject({ write: true, writeTarget: "editor" });
+    expect(allTools.find((tool) => tool.name === "godot_debug_run")).toMatchObject({ write: true, writeTarget: "editor" });
   });
 
   it("teaches Godot-specific orientation, reflection, editing, and verification", () => {
@@ -258,6 +262,20 @@ describe("Godot connection diagnosis", () => {
       const data = envelope.data as { godotAddon: { enabled: boolean }; findings: string[] };
       expect(data.godotAddon.enabled).toBe(false);
       expect(data.findings).toContain("The addon is installed but is not listed in [editor_plugins].");
+    }
+  });
+
+  it("reports a missing FoundryRuntimeProbe autoload even when the editor addon is enabled", async () => {
+    const root = await diagnosticProject(true, false);
+    const health = { status: "ok", projectPath: root };
+    const envelope = await godotDiagnoseConnection.run({}, buildContext({ projectPath: root, bridgeOverride: diagnosticBridge(root, health, true) }));
+
+    expect(envelope.ok).toBe(true);
+    if (envelope.ok) {
+      const data = envelope.data as { godotAddon: { detected: boolean; enabled: boolean; runtimeProbeConfigured: boolean }; findings: string[] };
+      expect(data.godotAddon).toMatchObject({ detected: true, enabled: true, runtimeProbeConfigured: false });
+      expect(data.findings).toContain("FoundryRuntimeProbe is missing or is not configured in [autoload].");
+      expect(data.findings.join(" ")).not.toContain("checks passed");
     }
   });
 });

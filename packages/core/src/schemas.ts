@@ -209,6 +209,90 @@ export const PlayRunResultSchema = PlayStatusSchema.extend({
 });
 export const PlayStopResultSchema = PlayStatusSchema.extend({ stopped: z.boolean() });
 
+export const DebugEventSchema = z.object({
+  cursor: z.number().int().nonnegative(),
+  source: z.enum(["editor", "runtime"]),
+  severity: z.enum(["info", "warning", "error"]),
+  kind: z.string(),
+  message: z.string(),
+  file: z.string(),
+  line: z.number().int(),
+  function: z.string(),
+  timestampMs: z.number().int().nonnegative(),
+});
+export type DebugEvent = z.infer<typeof DebugEventSchema>;
+
+const NullableFiniteMetricSchema = z.number().finite().nullable();
+export const DebugSampleSchema = z.object({
+  cursor: z.number().int().nonnegative(),
+  timestampMs: z.number().int().nonnegative(),
+  fps: NullableFiniteMetricSchema,
+  processMs: NullableFiniteMetricSchema,
+  physicsMs: NullableFiniteMetricSchema,
+  memoryBytes: NullableFiniteMetricSchema,
+  objectCount: NullableFiniteMetricSchema,
+  nodeCount: NullableFiniteMetricSchema,
+  orphanNodeCount: NullableFiniteMetricSchema,
+  drawCalls: NullableFiniteMetricSchema,
+});
+export type DebugSample = z.infer<typeof DebugSampleSchema>;
+
+export const DebugRuntimeSchema = z.object({
+  scenePath: z.string(),
+  rootName: z.string(),
+  rootType: z.string(),
+  nodeCount: z.number().int().nonnegative(),
+  pid: z.number().int().nonnegative(),
+});
+export type DebugRuntime = z.infer<typeof DebugRuntimeSchema>;
+
+export const DebugScreenshotSchema = z.object({
+  id: z.string().min(1),
+  mimeType: z.literal("image/png"),
+  pngBase64: z.string().min(1),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  bytes: z.number().int().positive(),
+  capturedAtMs: z.number().int().nonnegative(),
+});
+export type DebugScreenshot = z.infer<typeof DebugScreenshotSchema>;
+
+export const DebugSnapshotParamsSchema = z.object({
+  sinceEventCursor: z.number().int().nonnegative().optional(),
+  sinceSampleCursor: z.number().int().nonnegative().optional(),
+  maxEvents: z.number().int().min(1).max(200).optional(),
+  maxSamples: z.number().int().min(1).max(120).optional(),
+  requestScreenshot: z.boolean().optional(),
+  includeScreenshot: z.boolean().optional(),
+});
+export type DebugSnapshotParams = z.infer<typeof DebugSnapshotParamsSchema>;
+
+export const DebugSnapshotResultSchema = z.object({
+  runId: z.string(),
+  sessionId: z.number().int().nullable(),
+  runtimeConnected: z.boolean(),
+  playing: z.boolean(),
+  breaked: z.boolean(),
+  startedAtMs: z.number().int().nonnegative(),
+  stoppedAtMs: z.number().int().nonnegative().nullable(),
+  eventCursor: z.number().int().nonnegative(),
+  sampleCursor: z.number().int().nonnegative(),
+  firstEventCursor: z.number().int().nonnegative(),
+  firstSampleCursor: z.number().int().nonnegative(),
+  missedEvents: z.number().int().nonnegative(),
+  missedSamples: z.number().int().nonnegative(),
+  events: z.array(DebugEventSchema),
+  samples: z.array(DebugSampleSchema),
+  droppedEvents: z.number().int().nonnegative(),
+  droppedSamples: z.number().int().nonnegative(),
+  runtime: DebugRuntimeSchema.nullable(),
+  screenshotId: z.string(),
+  screenshot: DebugScreenshotSchema.nullable(),
+  capturePending: z.boolean(),
+  captureError: z.string().nullable(),
+});
+export type DebugSnapshotResult = z.infer<typeof DebugSnapshotResultSchema>;
+
 export const BridgeResultSchemas = {
   [BRIDGE_METHODS.systemHealth]: SystemHealthResultSchema,
   [BRIDGE_METHODS.systemSummary]: ProjectSummarySchema,
@@ -231,6 +315,7 @@ export const BridgeResultSchemas = {
   [BRIDGE_METHODS.playRun]: PlayRunResultSchema,
   [BRIDGE_METHODS.playStop]: PlayStopResultSchema,
   [BRIDGE_METHODS.playStatus]: PlayStatusSchema,
+  [BRIDGE_METHODS.debugSnapshot]: DebugSnapshotResultSchema,
 } satisfies Record<BridgeMethod, z.ZodTypeAny>;
 
 export const ScriptReadResultSchema = z.object({

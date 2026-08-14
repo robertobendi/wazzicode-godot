@@ -846,7 +846,7 @@ fn git_commit(
 
 /// Shared tail appended to every builder prompt: the verify → screenshot →
 /// fenced-verdict contract the reflector depends on.
-const BUILDER_TAIL: &str = "\n\nAfter making changes, run godot_verify. It must prove headless import and GDScript syntax; if it reports tests as not_configured, state that honestly and do not imply tests ran. Inspect the relevant scene tree and capture the 2D or 3D editor viewport when visual evidence is useful.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{\"status\":\"done|continue|blocked\",\"summary\":\"<one sentence>\",\"screenshotPath\":\"<returned screenshot path, or empty>\"}\n```\nUse \"done\" ONLY when the WHOLE goal is achieved and godot_verify passes. Use \"continue\" when there is more to do. Use \"blocked\" only if you genuinely cannot make progress.";
+const BUILDER_TAIL: &str = "\n\nAfter making changes, run godot_verify. It must prove headless import and GDScript syntax; if it reports tests as not_configured, state that honestly and do not imply tests ran. When runtime behavior matters, use godot_debug_run and address its bounded diagnostic and performance evidence. Inspect the relevant scene tree and capture the 2D or 3D editor viewport when additional visual evidence is useful.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{\"status\":\"done|continue|blocked\",\"summary\":\"<one sentence>\",\"screenshotPath\":\"<returned screenshot path, or empty>\"}\n```\nUse \"done\" ONLY when the WHOLE goal is achieved and godot_verify passes. Use \"continue\" when there is more to do. Use \"blocked\" only if you genuinely cannot make progress.";
 
 fn reference_block(images: &[String]) -> String {
     if images.is_empty() {
@@ -916,7 +916,7 @@ fn feedback_block(feedback: &[String]) -> String {
 fn qa_prompt(goal: &str, images: &[String]) -> String {
     let refs = reference_block(images);
     format!(
-        "You are a harsh, skeptical QA reviewer. Judge whether this goal has been FULLY achieved in the CURRENT Godot project.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nJudge in this order:\n\n1. Run `godot_verify` FIRST. It is the ground truth for headless import and GDScript syntax. Report `gate` as \"pass\" only when it passes, \"fail\" when it fails, or \"unavailable\" when it cannot run. If tests are `not_configured`, say so in notes and never claim tests ran; that status alone does not turn a passing import/script gate into a failure.\n2. Inspect open scenes and the relevant scene tree. Use `godot_capture_2d_view` or `godot_capture_3d_view` for visual goals. Use `godot_run_project` and observe only supported evidence when runtime behaviour matters, then stop the project.\n\nSet `pass` to true only when godot_verify passed AND the goal is fully met. Visual polish cannot override a failing gate. Be strict.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{{\"pass\":true|false,\"gate\":\"pass|fail|unavailable\",\"score\":0,\"notes\":\"<what is wrong, what is good, and tests:not_configured when applicable>\"}}\n```"
+        "You are a harsh, skeptical QA reviewer. Judge whether this goal has been FULLY achieved in the CURRENT Godot project.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nJudge in this order:\n\n1. Run `godot_verify` FIRST. It is the ground truth for headless import and GDScript syntax. Report `gate` as \"pass\" only when it passes, \"fail\" when it fails, or \"unavailable\" when it cannot run. If tests are `not_configured`, say so in notes and never claim tests ran; that status alone does not turn a passing import/script gate into a failure.\n2. Inspect open scenes and the relevant scene tree. Use `godot_capture_2d_view` or `godot_capture_3d_view` for visual goals. When runtime behavior matters, call `godot_debug_run` and judge its grouped diagnostics, performance findings, lifecycle, and game-frame evidence. Treat a clean result only as a clean bounded observation.\n\nSet `pass` to true only when godot_verify passed AND the goal is fully met. Visual polish cannot override a failing gate. Be strict.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{{\"pass\":true|false,\"gate\":\"pass|fail|unavailable\",\"score\":0,\"notes\":\"<what is wrong, what is good, and tests:not_configured when applicable>\"}}\n```"
     )
 }
 
@@ -1019,6 +1019,7 @@ mod tests {
         assert!(first.contains("first iteration"));
         assert!(first.contains("make a cube"));
         assert!(first.contains("```json"));
+        assert!(first.contains("godot_debug_run"));
 
         let later = builder_prompt(
             2,
@@ -1056,6 +1057,8 @@ mod tests {
         assert!(p.contains("\"pass\""));
         // The critic is required to run the ground-truth gate and report it.
         assert!(p.contains("godot_verify"));
+        assert!(p.contains("godot_debug_run"));
+        assert!(p.contains("clean bounded observation"));
         assert!(p.contains("not_configured"));
         assert!(p.contains("\"gate\""));
     }

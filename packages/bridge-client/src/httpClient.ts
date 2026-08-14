@@ -69,6 +69,7 @@ const METHOD_TIMEOUT_MS: Record<string, number> = {
   "resource.getDependencies": 60_000,
   "play.run": 45_000,
   "play.stop": 45_000,
+  "debug.snapshot": 30_000,
   "viewport.capture2D": 30_000,
   "viewport.capture3D": 30_000,
 };

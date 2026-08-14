@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -33,6 +33,11 @@ const capturePaths = [];
 
 try {
   rejectRunningFixtureEditor();
+  const bufferTest = spawnSync(godot, ["--headless", "--editor", "--path", fixture, "--script", "res://debug_buffer_test.gd", "--no-header"], {
+    encoding: "utf8",
+    timeout: 20_000,
+  });
+  assert.equal(bufferTest.status, 0, `debug buffer accounting failed:\n${bufferTest.stdout ?? ""}${bufferTest.stderr ?? ""}`);
   if (existsSync(discoveryPath)) unlinkSync(discoveryPath);
   if (existsSync(editorLogPath)) unlinkSync(editorLogPath);
   ({ server: portBlocker, port: blockedPort } = await blockPreferredPort());
@@ -54,7 +59,7 @@ try {
   assert.equal(discovery.host, "127.0.0.1");
   assert.ok(discovery.port > blockedPort && discovery.port < blockedPort + 32, "bridge must fall back when its preferred port is occupied");
   assert.equal(discovery.projectPath, fixture);
-  assert.equal(discovery.protocolVersion, "1.0");
+  assert.equal(discovery.protocolVersion, "1.1");
   assert.equal(typeof discovery.token, "string");
   assert.ok(discovery.token.length >= 24);
   if (process.platform !== "win32") {
@@ -73,7 +78,7 @@ try {
   const rpc = async (method, params = {}) => {
     const response = await request("POST", "/rpc", {
       id: `integration-${method}-${Date.now()}`,
-      version: "1.0",
+      version: "1.1",
       method,
       params,
     }, discovery.token);
@@ -87,7 +92,7 @@ try {
   const rpcError = async (method, params, code) => {
     const response = await request("POST", "/rpc", {
       id: `integration-error-${Date.now()}`,
-      version: "1.0",
+      version: "1.1",
       method,
       params,
     }, discovery.token);
@@ -217,7 +222,7 @@ try {
   ]) {
     const response = await request("POST", "/rpc", {
       id: `integration-${method}`,
-      version: "1.0",
+      version: "1.1",
       method,
       params: { outputPath, width: 320, height: 180 },
     }, discovery.token);
@@ -232,6 +237,103 @@ try {
       assert.equal(response.body.error.code, "CAPTURE_UNAVAILABLE");
     }
   }
+
+  const startupDebug = await rpc("debug.snapshot", {
+    maxEvents: 200,
+    maxSamples: 1,
+    includeScreenshot: false,
+  });
+  for (const event of startupDebug.events) {
+    assert.doesNotMatch(event.message, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/, "debug event text must remain valid JSON");
+  }
+  const debugBaseline = await rpc("debug.snapshot", {
+    maxEvents: 1,
+    maxSamples: 1,
+    includeScreenshot: false,
+  });
+  assert.equal(debugBaseline.runId, "");
+  assert.equal(debugBaseline.runtimeConnected, false);
+  const debugRun = await rpc("play.run", { mode: "current" });
+  assert.equal(debugRun.started, true);
+  let debugSnapshot;
+  await waitUntil(async () => {
+    debugSnapshot = await rpc("debug.snapshot", {
+      sinceEventCursor: debugBaseline.eventCursor,
+      sinceSampleCursor: debugBaseline.sampleCursor,
+      maxEvents: 100,
+      maxSamples: 40,
+      includeScreenshot: false,
+    });
+    return debugSnapshot.runtimeConnected
+      && debugSnapshot.samples.length > 0
+      && debugSnapshot.events.some((event) => event.message.includes("FOUNDRY_DEBUG_FIXTURE_WARNING"));
+  }, 15_000, "runtime debug evidence");
+  assert.equal(debugSnapshot.playing, true);
+  assert.ok(debugSnapshot.runId.length > 0);
+  assert.equal(debugSnapshot.runtime.rootName, "FixtureRoot");
+  assert.ok(debugSnapshot.runtime.nodeCount > 0);
+  assert.equal(debugSnapshot.missedEvents, 0);
+  const captureRequested = await rpc("debug.snapshot", {
+    sinceEventCursor: debugBaseline.eventCursor,
+    sinceSampleCursor: debugBaseline.sampleCursor,
+    requestScreenshot: true,
+    includeScreenshot: true,
+  });
+  assert.ok(captureRequested.screenshotId.length > 0);
+  let debugCapture = captureRequested;
+  if (debugCapture.capturePending) {
+    await waitUntil(async () => {
+      debugCapture = await rpc("debug.snapshot", {
+        sinceEventCursor: debugBaseline.eventCursor,
+        sinceSampleCursor: debugBaseline.sampleCursor,
+        includeScreenshot: true,
+      });
+      return !debugCapture.capturePending;
+    }, 10_000, "runtime screenshot result");
+  }
+  if (debugCapture.screenshot) {
+    const png = Buffer.from(debugCapture.screenshot.pngBase64, "base64");
+    assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  } else {
+    assert.match(debugCapture.captureError, /display server|viewport|stopped/i);
+  }
+  const debugStopped = await rpc("play.stop");
+  assert.equal(debugStopped.stopped, true);
+  let retainedDebug;
+  await waitUntil(async () => {
+    retainedDebug = await rpc("debug.snapshot", {
+      sinceEventCursor: debugBaseline.eventCursor,
+      sinceSampleCursor: debugBaseline.sampleCursor,
+      maxEvents: 100,
+      maxSamples: 40,
+      includeScreenshot: false,
+    });
+    return retainedDebug.stoppedAtMs !== null;
+  }, 10_000, "retained stopped debug evidence");
+  assert.equal(retainedDebug.runId, debugSnapshot.runId);
+  assert.equal(retainedDebug.playing, false);
+  assert.ok(retainedDebug.events.some((event) => event.message.includes("FOUNDRY_DEBUG_FIXTURE_WARNING")));
+
+  await rpc("play.run", { mode: "current" });
+  let guardedRun;
+  await waitUntil(async () => {
+    guardedRun = await rpc("debug.snapshot", { maxEvents: 1, maxSamples: 1 });
+    return guardedRun.playing && guardedRun.runId && guardedRun.runId !== retainedDebug.runId;
+  }, 10_000, "first guarded run identity");
+  await rpc("play.stop", { expectedRunId: guardedRun.runId });
+  await rpc("play.run", { mode: "main" });
+  let replacementRun;
+  await waitUntil(async () => {
+    replacementRun = await rpc("debug.snapshot", { maxEvents: 1, maxSamples: 1 });
+    return replacementRun.playing && replacementRun.runId && replacementRun.runId !== guardedRun.runId;
+  }, 10_000, "replacement run identity");
+  await rpcError("play.stop", { expectedRunId: guardedRun.runId }, "RUN_CHANGED");
+  assert.equal((await rpc("play.status")).playing, true, "a replaced run must remain active");
+  await rpc("play.stop", { expectedRunId: replacementRun.runId });
+  await waitUntil(async () => {
+    const stoppedRun = await rpc("debug.snapshot", { maxEvents: 1, maxSamples: 1 });
+    return !stoppedRun.playing && stoppedRun.runId === replacementRun.runId && stoppedRun.stoppedAtMs !== null;
+  }, 10_000, "replacement runtime process stop");
 
   for (const [params, expectedPath] of [
     [{ mode: "current" }, "res://main.tscn"],
@@ -249,6 +351,10 @@ try {
     const stopped = await rpc("play.stop");
     assert.equal(stopped.stopped, true);
     assert.equal(stopped.playing, false);
+    await waitUntil(async () => {
+      const stoppedRun = await rpc("debug.snapshot", { maxEvents: 1, maxSamples: 1 });
+      return !stoppedRun.playing && stoppedRun.stoppedAtMs !== null;
+    }, 10_000, `${params.mode} runtime process stop`);
   }
   const alreadyStopped = await rpc("play.stop");
   assert.equal(alreadyStopped.stopped, false);
@@ -273,7 +379,7 @@ try {
   await testDiscoveryFileSymlinkContainment();
   await testOwnershipSafeCleanup();
   await testRandomTokenFailure();
-  console.log("Godot addon integration passed: auth, 21 RPC methods, inherited imports, undoable edits, save, capture containment, play, and discovery lifecycle.");
+  console.log("Godot addon integration passed: auth, 22 RPC methods, inherited imports, undoable edits, runtime debug evidence, save, capture containment, play, and discovery lifecycle.");
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (editorOutput) process.stderr.write(`\nGodot output (tail):\n${editorOutput.slice(-8000)}\n`);
@@ -515,6 +621,7 @@ function createProjectScenario(name) {
   cpSync(addonSource, path.join(project, "addons", "godot_vibe_os"), { recursive: true });
   cpSync(projectFilePath, path.join(project, "project.godot"));
   cpSync(mainScenePath, path.join(project, "main.tscn"));
+  cpSync(path.join(fixture, "debug_runtime.gd"), path.join(project, "debug_runtime.gd"));
   cpSync(path.join(fixture, "template.tscn"), path.join(project, "template.tscn"));
   return { root, project };
 }

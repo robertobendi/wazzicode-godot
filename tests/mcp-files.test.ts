@@ -414,7 +414,7 @@ describe("Godot verification", () => {
   it("resolves relative project paths and separates import/syntax from project tests", async () => {
     const fixtureSource = path.resolve("tests/godot/fixture");
     const fixture = await project();
-    for (const name of ["project.godot", "main.tscn", "template.tscn"]) {
+    for (const name of ["project.godot", "main.tscn", "template.tscn", "debug_runtime.gd"]) {
       await cp(path.join(fixtureSource, name), path.join(fixture, name));
     }
     await cp(
@@ -431,7 +431,7 @@ describe("Godot verification", () => {
     if (envelope.ok) {
       expect(envelope.data.verdict).toBe("unverified");
       expect(envelope.data.import).toMatchObject({ ok: true, exitCode: 0 });
-      expect(envelope.data.scripts).toMatchObject({ checked: 3, failed: 0, failures: [] });
+      expect(envelope.data.scripts).toMatchObject({ checked: 7, failed: 0, failures: [] });
       expect(envelope.data.tests).toMatchObject({ status: "not_configured" });
       expect(envelope.data.tests.message).toContain("not unit tests");
       expect(envelope.data.csharp).toMatchObject({ status: "unverified", scripts: 1, projects: 1 });

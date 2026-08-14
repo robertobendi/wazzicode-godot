@@ -4,9 +4,19 @@ import { makeMockPng } from "./mockPng.js";
 
 export function createMockBridgeClient(): BridgeClient {
   const node = { name: "Player", type: "CharacterBody2D", path: "Player", sceneFilePath: "", ownerPath: ".", childCount: 0, instanceId: 42 };
-  const responders: Record<BridgeMethod, () => unknown> = {
-    "system.health": () => ({ status: "ok", godotVersion: "4.7.1.mock", projectPath: "/mock/godot", uptimeMs: 12_345, isPlaying: false, filesystemScanning: false }),
-    "system.summary": () => ({ engine: "godot", godotVersion: "4.7.1.mock", projectName: "MockGame", projectPath: "/mock/godot", platform: "macOS", openSceneCount: 1, editedScene: "res://scenes/main.tscn", isPlaying: false, filesystem: { scanning: false, importing: false, progress: 1, indexedFiles: 37 } }),
+  let playing = false;
+  let playingScenePath = "";
+  let lastRunScenePath = "";
+  let runNumber = 0;
+  let runId = "";
+  let startedAtMs = 0;
+  let stoppedAtMs: number | null = null;
+  let sampleCursor = 0;
+  let screenshotId = "";
+  let debugScreenshot: ReturnType<typeof runtimeScreenshot> | null = null;
+  const responders: Record<BridgeMethod, (params: Record<string, unknown>) => unknown> = {
+    "system.health": () => ({ status: "ok", godotVersion: "4.7.1.mock", projectPath: "/mock/godot", uptimeMs: 12_345, isPlaying: playing, filesystemScanning: false }),
+    "system.summary": () => ({ engine: "godot", godotVersion: "4.7.1.mock", projectName: "MockGame", projectPath: "/mock/godot", platform: "macOS", openSceneCount: 1, editedScene: "res://scenes/main.tscn", isPlaying: playing, filesystem: { scanning: false, importing: false, progress: 1, indexedFiles: 37 } }),
     "scene.getOpenScenes": () => ({ scenes: [{ path: "res://scenes/main.tscn", name: "Main", rootType: "Node2D", active: true, unsaved: false }], count: 1, activeScene: "res://scenes/main.tscn" }),
     "scene.getTree": () => ({ scenePath: "res://scenes/main.tscn", root: { name: "Main", type: "Node2D", path: ".", sceneFilePath: "res://scenes/main.tscn", ownerPath: ".", childCount: 1, instanceId: 1, children: [{ ...node, children: [] }] }, nodeCount: 2, truncated: false }),
     "selection.inspect": () => ({ nodes: [node], count: 1 }),
@@ -23,19 +33,94 @@ export function createMockBridgeClient(): BridgeClient {
     "edit.deleteNode": () => ({ nodePath: "Player", deleted: true }),
     "edit.reparentNode": () => ({ nodePath: "World/Player", parentPath: "World" }),
     "edit.instantiateScene": () => ({ ...node, sourceScene: "res://actors/player.tscn" }),
-    "play.run": () => ({ playing: true, scenePath: "res://scenes/main.tscn", started: true, requestedMode: "main" }),
-    "play.stop": () => ({ playing: false, scenePath: "", stopped: true }),
-    "play.status": () => ({ playing: false, scenePath: "" }),
+    "play.run": (params) => {
+      const wasPlaying = playing;
+      playing = true;
+      if (!wasPlaying) {
+        runNumber += 1;
+        runId = `mock-run-${runNumber}`;
+        startedAtMs = Date.now();
+        stoppedAtMs = null;
+        sampleCursor = 0;
+        screenshotId = "";
+        debugScreenshot = null;
+      }
+      const mode = params.mode === "current" || params.mode === "custom" ? params.mode : "main";
+      const scenePath = mode === "custom" && typeof params.path === "string" ? params.path : "res://scenes/main.tscn";
+      playingScenePath = scenePath;
+      lastRunScenePath = scenePath;
+      return { playing, scenePath, started: !wasPlaying, requestedMode: mode };
+    },
+    "play.stop": () => {
+      playing = false;
+      playingScenePath = "";
+      stoppedAtMs = Date.now();
+      return { playing: false, scenePath: "", stopped: true };
+    },
+    "play.status": () => ({ playing, scenePath: playingScenePath }),
+    "debug.snapshot": (params) => {
+      if (playing) sampleCursor += 1;
+      if (params.requestScreenshot === true && screenshotId.length === 0) {
+        screenshotId = `mock-capture-${runNumber || 1}`;
+        debugScreenshot = runtimeScreenshot(screenshotId);
+      }
+      const sample = playing ? [{
+        cursor: sampleCursor,
+        timestampMs: Date.now(),
+        fps: 60,
+        processMs: 8.25,
+        physicsMs: 2.5,
+        memoryBytes: 67_108_864,
+        objectCount: 128,
+        nodeCount: 12,
+        orphanNodeCount: 0,
+        drawCalls: 24,
+      }] : [];
+      const sinceSampleCursor = typeof params.sinceSampleCursor === "number" ? params.sinceSampleCursor : 0;
+      const samples = sample.filter((entry) => entry.cursor > sinceSampleCursor);
+      return {
+        runId,
+        sessionId: runId ? runNumber : null,
+        runtimeConnected: playing,
+        playing,
+        breaked: false,
+        startedAtMs,
+        stoppedAtMs,
+        eventCursor: 0,
+        sampleCursor,
+        firstEventCursor: 0,
+        firstSampleCursor: samples[0]?.cursor ?? 0,
+        missedEvents: 0,
+        missedSamples: 0,
+        events: [],
+        samples,
+        droppedEvents: 0,
+        droppedSamples: 0,
+        runtime: runId ? { scenePath: lastRunScenePath, rootName: "Main", rootType: "Node2D", nodeCount: 12, pid: 12_345 } : null,
+        screenshotId,
+        screenshot: params.includeScreenshot === true ? debugScreenshot : null,
+        capturePending: false,
+        captureError: null,
+      };
+    },
   };
   return {
     source: "mock",
-    async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+    async call<T>(method: BridgeMethod, params: Record<string, unknown> = {}): Promise<BridgeResponse<T>> {
+      if (method === "play.stop" && typeof params.expectedRunId === "string" && params.expectedRunId !== runId) {
+        return { id: "mock", ok: false, result: null, error: { code: "RUN_CHANGED", message: "The active game is not the run this request started; it was left running." }, meta: { godotVersion: "4.7.1.mock", projectPath: "/mock/godot", durationMs: 1 } };
+      }
       const responder = responders[method];
-      return { id: "mock", ok: true, result: responder() as T, error: null, meta: { godotVersion: "4.7.1.mock", projectPath: "/mock/godot", durationMs: 1 } };
+      return { id: "mock", ok: true, result: responder(params) as T, error: null, meta: { godotVersion: "4.7.1.mock", projectPath: "/mock/godot", durationMs: 1 } };
     },
     async isConnected() { return true; },
-    async health() { return responders["system.health"]() as never; },
+    async health() { return responders["system.health"]({}) as never; },
   };
+}
+
+function runtimeScreenshot(id: string) {
+  const image = makeMockPng(640, 360, [46, 160, 109], "MOCK GODOT DEBUG RUN");
+  return { id, mimeType: "image/png" as const, pngBase64: image.pngBase64, width: image.width, height: image.height, bytes: Buffer.byteLength(image.pngBase64, "base64"), capturedAtMs: Date.now() };
 }
 
 function screenshot(kind: "2d" | "3d", color: [number, number, number]) {

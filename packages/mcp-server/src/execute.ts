@@ -141,6 +141,7 @@ function shouldInvalidateKnowledge(
   data: unknown
 ): boolean {
   if (tool.name === "godot_open_scene") return false;
+  if (tool.name === "godot_debug_run") return false;
   if (args.preview === true) {
     const applied =
       typeof data === "object" &&

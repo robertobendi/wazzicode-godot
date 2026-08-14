@@ -21,18 +21,21 @@ import { BRIDGE_METHODS, bridgeCall, err, ok, timed } from "./_helpers.js";
 
 const EmptyShape = {};
 const ADDON_PLUGIN_PATH = "res://addons/godot_vibe_os/plugin.cfg";
+const RUNTIME_PROBE_AUTOLOAD_NAME = "FoundryRuntimeProbe";
+const RUNTIME_PROBE_PATH = "res://addons/godot_vibe_os/runtime_probe.gd";
 
 export const godotDiagnoseConnection: ToolDef<typeof EmptyShape, unknown> = {
   name: "godot_diagnose_connection",
-  description: "Diagnoses the complete MCP-to-Godot path: project/addon presence, enabled plugin config, authenticated discovery, protocol, health, RPC, and project identity.",
+  description: "Diagnoses the complete MCP-to-Godot path: project/addon presence, plugin and runtime-probe config, authenticated discovery, protocol, health, RPC, and project identity.",
   requires: ["godot_bridge", "filesystem"],
   inputShape: EmptyShape,
   async run(_args, ctx) {
     const addonPath = path.join(ctx.projectPath, "addons", "godot_vibe_os", "plugin.cfg");
     let projectFile: string | null = null;
     try { projectFile = (await resolveProjectPath(ctx.projectPath, "project.godot")).absolute; } catch { /* Unsafe project files are not valid projects. */ }
-    const [projectExists, addonExists, enabledText, health, rpc] = await Promise.all([
-      projectFile ? exists(projectFile) : false, exists(addonPath), projectFile ? fs.readFile(projectFile, "utf8").catch(() => "") : "",
+    const runtimeProbePath = path.join(ctx.projectPath, "addons", "godot_vibe_os", "runtime_probe.gd");
+    const [projectExists, addonExists, runtimeProbeExists, enabledText, health, rpc] = await Promise.all([
+      projectFile ? exists(projectFile) : false, exists(addonPath), exists(runtimeProbePath), projectFile ? fs.readFile(projectFile, "utf8").catch(() => "") : "",
       (ctx.bridge.health?.() ?? Promise.resolve(null)).catch(() => null),
       ctx.bridge.call(BRIDGE_METHODS.systemHealth).catch((error): BridgeResponse => ({
         id: "diagnose",
@@ -45,10 +48,12 @@ export const godotDiagnoseConnection: ToolDef<typeof EmptyShape, unknown> = {
     const rawDiscovery = readBridgeDiscovery(ctx.projectPath);
     const discovery = redactBridgeDiscovery(rawDiscovery);
     const enabled = isEditorPluginEnabled(enabledText, ADDON_PLUGIN_PATH);
+    const runtimeProbeConfigured = runtimeProbeExists && isRuntimeProbeEnabled(enabledText);
     const findings: string[] = [];
     if (!projectExists) findings.push("project.godot is missing.");
     if (!addonExists) findings.push("addons/godot_vibe_os/plugin.cfg is missing.");
     if (addonExists && !enabled) findings.push("The addon is installed but is not listed in [editor_plugins].");
+    if (addonExists && !runtimeProbeConfigured) findings.push("FoundryRuntimeProbe is missing or is not configured in [autoload].");
     if (!discovery) findings.push(`No ${BRIDGE_DISCOVERY_REL} discovery file exists.`);
     else if (discovery.protocolVersion !== PROTOCOL_VERSION) findings.push(`Bridge protocol ${discovery.protocolVersion} does not match ${PROTOCOL_VERSION}.`);
     if (!health) findings.push("Bridge health check failed.");
@@ -56,8 +61,8 @@ export const godotDiagnoseConnection: ToolDef<typeof EmptyShape, unknown> = {
     if (!rpc.ok) findings.push(`Bridge RPC check failed: ${rpc.error.code} — ${rpc.error.message}`);
     const state = health && rpc.ok ? "connected" : health ? "reloading" : "not_connected";
     const passed = findings.length === 0;
-    if (passed) findings.push("Addon installation, authentication, protocol, identity, health, and RPC checks passed.");
-    return ok({ state, server: { version: PRODUCT_VERSION, protocolVersion: PROTOCOL_VERSION, projectPath: ctx.projectPath }, project: { valid: projectExists }, godotAddon: { detected: addonExists, enabled, path: addonExists ? addonPath : undefined }, discovery, health, rpc: rpc.ok ? { ok: true } : { ok: false, error: rpc.error }, findings, nextAction: nextConnectionAction(projectExists, addonExists, enabled, state) }, { source: ctx.bridge.source, durationMs: 0 }, passed ? [] : findings);
+    if (passed) findings.push("Addon installation, runtime probe, authentication, protocol, identity, health, and RPC checks passed.");
+    return ok({ state, server: { version: PRODUCT_VERSION, protocolVersion: PROTOCOL_VERSION, projectPath: ctx.projectPath }, project: { valid: projectExists }, godotAddon: { detected: addonExists, enabled, runtimeProbeConfigured, path: addonExists ? addonPath : undefined }, discovery, health, rpc: rpc.ok ? { ok: true } : { ok: false, error: rpc.error }, findings, nextAction: nextConnectionAction(projectExists, addonExists, enabled, runtimeProbeConfigured, state) }, { source: ctx.bridge.source, durationMs: 0 }, passed ? [] : findings);
   },
 };
 
@@ -130,5 +135,17 @@ function isEditorPluginEnabled(contents: string, pluginPath: string): boolean {
   }
   return false;
 }
-function nextConnectionAction(project: boolean, addon: boolean, enabled: boolean, state: string): string { if (!project) return "Point GVIBE_PROJECT at a directory containing project.godot."; if (!addon) return "Run gvibe install-addon, then open the project in Godot."; if (!enabled) return "Enable Godot Vibe OS under Project > Project Settings > Plugins."; if (state !== "connected") return "Open this project in Godot and wait for addon discovery."; return "No connection repair is needed."; }
+function isRuntimeProbeEnabled(contents: string): boolean {
+  const section = /^[ \t]*\[autoload\][ \t]*(?:[;#].*)?\r?$/m.exec(contents);
+  if (!section) return false;
+  let start = section.index + section[0].length;
+  if (contents[start] === "\n") start += 1;
+  const next = /^[ \t]*\[[^\]\r\n]+\][ \t]*(?:[;#].*)?\r?$/gm;
+  next.lastIndex = start;
+  const body = contents.slice(start, next.exec(contents)?.index ?? contents.length);
+  const assignment = new RegExp(`^[ \\t]*${RUNTIME_PROBE_AUTOLOAD_NAME}[ \\t]*=[ \\t]*(.+?)[ \\t]*(?:[;#].*)?\\r?$`, "m").exec(body);
+  if (!assignment) return false;
+  try { return JSON.parse(assignment[1]) === `*${RUNTIME_PROBE_PATH}`; } catch { return false; }
+}
+function nextConnectionAction(project: boolean, addon: boolean, enabled: boolean, runtimeProbeConfigured: boolean, state: string): string { if (!project) return "Point GVIBE_PROJECT at a directory containing project.godot."; if (!addon) return "Run gvibe install-addon, then open the project in Godot."; if (!enabled) return "Enable Godot Vibe OS under Project > Project Settings > Plugins."; if (!runtimeProbeConfigured) return "Re-run gvibe install-addon to configure FoundryRuntimeProbe, then restart Godot."; if (state !== "connected") return "Open this project in Godot and wait for addon discovery."; return "No connection repair is needed."; }
 function runGitStatus(cwd: string): Promise<unknown> { return new Promise((resolve) => execFile("git", ["-C", cwd, "status", "--porcelain=v1", "--branch"], { encoding: "utf8" }, (error, stdout) => { if (error) { resolve({ isGitRepo: false }); return; } const lines = stdout.split(/\r?\n/).filter(Boolean); resolve({ isGitRepo: true, branch: lines[0]?.replace(/^## /, "") ?? "", clean: lines.length === 1, changes: lines.slice(1, 101) }); })); }

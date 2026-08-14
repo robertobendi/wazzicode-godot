@@ -14,6 +14,7 @@ import {
   godotBatch, godotDiagnoseConnection, godotGenerateProjectBrain, godotOrient,
   godotQueryProjectBrain,
 } from "./godotComposite.js";
+import { godotDebugRun } from "./godotDebug.js";
 
 export const allTools: AnyToolDef[] = [
   godotOrient,
@@ -44,6 +45,7 @@ export const allTools: AnyToolDef[] = [
   godotFindInFile,
   godotCreateScript,
   godotApplyTextEdits,
+  godotDebugRun,
   godotRunProject,
   godotStopProject,
   godotGetPlayStatus,
@@ -52,6 +54,7 @@ export const allTools: AnyToolDef[] = [
 export {
   godotApplyTextEdits, godotBatch, godotCapture2DView, godotCapture3DView,
   godotCreateNode, godotCreateScript, godotDeleteNode, godotDiagnoseConnection,
+  godotDebugRun,
   godotFindDependencies, godotFindInFile, godotGenerateProjectBrain,
   godotGetFilesystemStatus, godotGetOpenScenes, godotGetPlayStatus,
   godotGetSceneTree, godotGetScriptSha, godotInspectSelected, godotInstantiateScene,

@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import { useGodotDiagnostics } from "@/hooks/useGodotDiagnostics";
-import { collectGodotDiagnostics } from "@/lib/godotDiagnostics";
+import {
+  collectGodotDebugRun,
+  collectGodotDiagnostics,
+  formatGodotEvidenceGaps,
+  type GodotDebugRun,
+} from "@/lib/godotDiagnostics";
 import {
   buildSceneQuestion,
   importState,
@@ -9,6 +14,9 @@ import {
 import { useChatStore } from "@/stores/useChatStore";
 import type { BridgeState } from "@/types/status";
 import { ChevronIcon, RefreshIcon } from "@/components/shell/icons";
+
+export const GODOT_DEBUG_RUN_PROMPT =
+  "Run `godot_debug_run` exactly once. Safely observe the current scene, or the project main scene when no scene is currently playing. Report the returned runtime diagnostics, performance findings, lifecycle, and screenshot evidence. Do not modify files, scenes, settings, or auto-fix anything unless I explicitly ask in a later task.";
 
 export default function GodotChecks({
   project,
@@ -27,10 +35,12 @@ export default function GodotChecks({
   );
   const submitTask = useChatStore((state) => state.submitTask);
   const messages = useChatStore((state) => state.messages);
+  const agentBusy = useChatStore((state) => state.running);
   const verification = useMemo(
     () => collectGodotDiagnostics(messages),
     [messages],
   );
+  const debugRun = useMemo(() => collectGodotDebugRun(messages), [messages]);
   const scenes = sceneState(snapshot);
   const imports = importState(snapshot);
 
@@ -38,6 +48,10 @@ export default function GodotChecks({
     submitTask(
       "Run godot_diagnose_connection for this project. Explain the exact cause and follow its safe recommended action when no user input is required.",
     );
+  }
+
+  function runDebugObservation() {
+    submitTask(GODOT_DEBUG_RUN_PROMPT);
   }
 
   return (
@@ -57,15 +71,30 @@ export default function GodotChecks({
               Live import, scene, run, and verification state
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            disabled={!connected || loading}
-            aria-label="Refresh Godot checks"
-            className="icon-button text-fg-dim hover:text-fg disabled:opacity-40"
-          >
-            <RefreshIcon className={loading ? "animate-spin" : undefined} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={runDebugObservation}
+              disabled={!connected || agentBusy}
+              title={agentBusy ? "The agent is already working" : "Observe runtime evidence without changing the project"}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-godot/25 bg-godot/10 px-2 text-[9px] font-semibold uppercase tracking-[0.08em] text-godot hover:border-godot/45 hover:bg-godot/15 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <span className="relative flex h-2 w-2 items-center justify-center" aria-hidden="true">
+                <span className="absolute h-2 w-2 rounded-full border border-current opacity-45" />
+                <span className="h-1 w-1 rounded-full bg-current" />
+              </span>
+              Debug run
+            </button>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              disabled={!connected || loading}
+              aria-label="Refresh Godot checks"
+              className="icon-button text-fg-dim hover:text-fg disabled:opacity-40"
+            >
+              <RefreshIcon className={loading ? "animate-spin" : undefined} />
+            </button>
+          </div>
         </div>
 
         <div className="mt-3 grid grid-cols-3 gap-2">
@@ -115,6 +144,7 @@ export default function GodotChecks({
           <Empty text="Refresh to inspect the editor." />
         ) : (
           <>
+            {debugRun && <DebugEvidenceCard run={debugRun} />}
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-fg-dim">
                 Open scenes
@@ -158,6 +188,206 @@ export default function GodotChecks({
       </div>
     </div>
   );
+}
+
+function DebugEvidenceCard({ run }: { run: GodotDebugRun }) {
+  if (run.status === "running") {
+    return (
+      <div className="mb-3 rounded-lg border border-godot/25 bg-godot/5 px-3 py-2.5">
+        <div className="flex items-center gap-2 text-[10px] font-semibold text-fg">
+          <span className="h-2 w-2 animate-dot-pulse rounded-full bg-godot" />
+          Observing runtime evidence
+        </div>
+        <p className="mt-1 text-[10px] leading-relaxed text-fg-dim">
+          The agent is watching a bounded play session for errors and frame health.
+        </p>
+      </div>
+    );
+  }
+
+  if (run.status === "invalid") {
+    return (
+      <div className="mb-3 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5">
+        <div className="text-[10px] font-semibold text-warning">Debug evidence unavailable</div>
+        <p className="mt-1 text-[10px] leading-relaxed text-fg-dim">{run.message}</p>
+      </div>
+    );
+  }
+
+  const { evidence } = run;
+  const tone = debugTone(evidence.verdict, evidence.diagnostics.errorCount);
+  const fps = evidence.performance.fps?.average;
+  const omittedGroups = evidence.diagnostics.omittedIssueGroups;
+  const evidenceGaps = formatGodotEvidenceGaps(evidence.diagnostics);
+  const findings = [
+    ...evidence.diagnostics.issues.map((issue) => ({
+      key: `${issue.source}:${issue.kind}:${issue.file ?? ""}:${issue.line ?? ""}`,
+      tone: issue.severity === "error" ? "text-danger" : "text-warning",
+      label: issue.message,
+      detail: issue.file
+        ? `${issue.file}${issue.line === undefined ? "" : `:${issue.line}`}`
+        : `${issue.source} · ${issue.kind}`,
+    })),
+    ...evidence.performance.findings.map((finding) => ({
+      key: `performance:${finding.code}`,
+      tone: "text-warning",
+      label: finding.message,
+      detail: `performance · ${finding.code}`,
+    })),
+  ];
+
+  return (
+    <article className={`mb-3 overflow-hidden rounded-lg border border-ink-700 border-l-2 bg-white ${tone.border}`}>
+      <div className="px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${tone.dot}`} />
+          <span className="min-w-0 flex-1 text-[10px] font-semibold text-fg">
+            Latest debug evidence
+          </span>
+          <span className={`text-[9px] font-semibold uppercase tracking-[0.08em] ${tone.text}`}>
+            {tone.label}
+          </span>
+        </div>
+        <p className="mt-2 text-[10px] leading-relaxed text-fg-muted">{evidence.summary}</p>
+        <div className="mt-1.5 flex items-center gap-2 font-mono text-[9px] text-fg-dim">
+          <span className="min-w-0 flex-1 truncate">{evidence.scenePath || "Scene unresolved"}</span>
+          <span className="shrink-0">{formatDuration(evidence.observeMs)}</span>
+        </div>
+        {evidence.verdict === "unverified" && evidenceGaps && (
+          <p className="mt-1.5 text-[8px] leading-relaxed text-warning">
+            Evidence gaps · {evidenceGaps}
+          </p>
+        )}
+        <div className="mt-2.5 grid grid-cols-3 divide-x divide-ink-700 rounded-md border border-ink-700 bg-ink-850">
+          <EvidenceMetric label="Errors" value={evidence.diagnostics.errorCount} tone={evidence.diagnostics.errorCount > 0 ? "danger" : "muted"} />
+          <EvidenceMetric label="Warnings" value={evidence.diagnostics.warningCount} tone={evidence.diagnostics.warningCount > 0 ? "warning" : "muted"} />
+          <EvidenceMetric label="Avg FPS" value={fps === undefined ? "—" : formatNumber(fps)} tone="muted" />
+        </div>
+      </div>
+      <details className="group border-t border-ink-700 bg-ink-850">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[9px] font-medium uppercase tracking-[0.08em] text-fg-dim hover:text-fg">
+          <span className="min-w-0 flex-1">
+            {findingsLabel(findings.length, omittedGroups)}
+          </span>
+          <ChevronIcon className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-ink-700 px-3 py-2.5">
+          {findings.length > 0 ? (
+            <ul className="space-y-2">
+              {findings.slice(0, 5).map((finding) => (
+                <li key={finding.key} className="text-[10px] leading-relaxed">
+                  <div className={finding.tone}>{finding.label}</div>
+                  <div className="mt-0.5 break-all font-mono text-[8px] text-fg-dim">{finding.detail}</div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            omittedGroups === 0 && (
+              <p className="text-[10px] text-fg-dim">No runtime or performance findings were recorded.</p>
+            )
+          )}
+          {findings.length > 5 && (
+            <p className="mt-2 text-[9px] leading-relaxed text-fg-dim">
+              +{findings.length - 5} retained findings are not shown in this preview.
+            </p>
+          )}
+          {omittedGroups > 0 && (
+            <p className="mt-2 text-[9px] leading-relaxed text-warning">
+              +{omittedGroups} diagnostic group{omittedGroups === 1 ? " was" : "s were"} omitted from the bounded packet. Totals above still include them.
+            </p>
+          )}
+          {evidence.verdict !== "unverified" && evidenceGaps && (
+            <p className="mt-1 text-[9px] leading-relaxed text-warning">
+              Evidence gaps · {evidenceGaps}
+            </p>
+          )}
+          <div className="mt-2.5 grid gap-1 border-t border-ink-700 pt-2 font-mono text-[8px] leading-relaxed text-fg-dim">
+            <span>{runtimeLabel(evidence)}</span>
+            <span>{lifecycleLabel(evidence)} · {screenshotLabel(evidence)}</span>
+          </div>
+        </div>
+      </details>
+    </article>
+  );
+}
+
+function findingsLabel(retained: number, omittedGroups: number): string {
+  if (retained === 0 && omittedGroups === 0) return "Observation details";
+  const retainedLabel = retained > 0
+    ? `${retained} finding${retained === 1 ? "" : "s"}`
+    : "No retained findings";
+  return omittedGroups > 0
+    ? `${retainedLabel} · +${omittedGroups} more group${omittedGroups === 1 ? "" : "s"}`
+    : retainedLabel;
+}
+
+function EvidenceMetric({ label, value, tone }: {
+  label: string;
+  value: string | number;
+  tone: "danger" | "warning" | "muted";
+}) {
+  const color = {
+    danger: "text-danger",
+    warning: "text-warning",
+    muted: "text-fg",
+  }[tone];
+  return (
+    <div className="px-2 py-1.5 text-center">
+      <div className={`text-[11px] font-semibold tabular-nums ${color}`}>{value}</div>
+      <div className="text-[8px] uppercase tracking-[0.08em] text-fg-dim">{label}</div>
+    </div>
+  );
+}
+
+function debugTone(verdict: "clean" | "issues" | "unverified" | "launch_failed", errors: number) {
+  if (verdict === "clean") {
+    return { label: "Clean", dot: "bg-success", text: "text-success", border: "border-l-success/60" };
+  }
+  if (verdict === "issues" && errors === 0) {
+    return { label: "Warnings", dot: "bg-warning", text: "text-warning", border: "border-l-warning/60" };
+  }
+  if (verdict === "issues") {
+    return { label: "Issues", dot: "bg-danger", text: "text-danger", border: "border-l-danger/60" };
+  }
+  if (verdict === "launch_failed") {
+    return { label: "Launch failed", dot: "bg-danger", text: "text-danger", border: "border-l-danger/60" };
+  }
+  return { label: "Unverified", dot: "bg-ink-600", text: "text-fg-dim", border: "border-l-ink-600" };
+}
+
+function formatDuration(milliseconds: number): string {
+  return milliseconds < 1000
+    ? `${Math.round(milliseconds)} ms`
+    : `${(milliseconds / 1000).toFixed(milliseconds % 1000 === 0 ? 0 : 1)} s`;
+}
+
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function runtimeLabel(evidence: Extract<GodotDebugRun, { status: "complete" }>["evidence"]): string {
+  return evidence.runtime?.connected
+    ? `${evidence.runtime.rootName} · ${evidence.runtime.rootType} · ${evidence.runtime.nodeCount} nodes · PID ${evidence.runtime.pid}`
+    : "Runtime probe unavailable";
+}
+
+function lifecycleLabel(evidence: Extract<GodotDebugRun, { status: "complete" }>["evidence"]): string {
+  const { lifecycle } = evidence;
+  if (lifecycle.attachedToExisting) {
+    return lifecycle.playingAfter ? "Attached; run left active" : "Attached; run ended";
+  }
+  if (lifecycle.startedByTool) {
+    return lifecycle.stopped ? "Started and stopped safely" : lifecycle.playingAfter ? "Started; run left active" : "Started; run ended";
+  }
+  return lifecycle.playingAfter ? "Existing run active" : "No active run";
+}
+
+function screenshotLabel(evidence: Extract<GodotDebugRun, { status: "complete" }>["evidence"]): string {
+  if (!evidence.screenshot.available) return "No screenshot";
+  const size = evidence.screenshot.width && evidence.screenshot.height
+    ? ` ${evidence.screenshot.width}×${evidence.screenshot.height}`
+    : "";
+  return `Screenshot${size}`;
 }
 
 function Metric({ label, value, detail, tone }: {

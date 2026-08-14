@@ -5,6 +5,7 @@ import {
   DEFAULT_BRIDGE_HOST,
   DEFAULT_BRIDGE_PORT,
   DEFAULT_MCP_PORT,
+  DebugSnapshotResultSchema,
   FilesystemStatusSchema,
   GodotNodeSchema,
   OpenScenesResultSchema,
@@ -25,7 +26,7 @@ import {
 describe("core product contract", () => {
   it("uses Godot-native identity, ports, and per-project discovery", () => {
     expect(PRODUCT_NAME).toBe("Godot Vibe OS");
-    expect(PROTOCOL_VERSION).toBe("1.0");
+    expect(PROTOCOL_VERSION).toBe("1.1");
     expect(DEFAULT_BRIDGE_HOST).toBe("127.0.0.1");
     expect(DEFAULT_BRIDGE_PORT).toBe(38588);
     expect(DEFAULT_MCP_PORT).toBe(38587);
@@ -55,6 +56,7 @@ describe("core product contract", () => {
       "play.run",
       "play.stop",
       "play.status",
+      "debug.snapshot",
     ]);
     expect(Object.values(BRIDGE_METHODS).some((method) => /unity|prefab|gameobject/i.test(method))).toBe(false);
   });
@@ -141,6 +143,7 @@ describe("core envelopes and errors", () => {
       "INVALID_ARGUMENT",
       "SAFETY_MODE_BLOCKED",
       "WRITE_REQUIRES_SNAPSHOT",
+      "RUN_CHANGED",
       "UNSUPPORTED_GODOT_VERSION",
       "INTERNAL_ERROR",
       "MOCK_MODE_ACTIVE",
@@ -227,5 +230,35 @@ describe("core Godot schemas", () => {
     });
     expect(verify.tests.status).toBe("not_configured");
     expect(VerifyResultSchema.safeParse({ ...verify, verdict: "unverified", csharp: { status: "unverified", scripts: 1, projects: 1, message: "C#/.NET verification was not performed." } }).success).toBe(true);
+  });
+
+  it("validates complete cursor-safe runtime debug evidence", () => {
+    const parsed = DebugSnapshotResultSchema.parse({
+      runId: "run-1",
+      sessionId: 3,
+      runtimeConnected: true,
+      playing: true,
+      breaked: false,
+      startedAtMs: 1_000,
+      stoppedAtMs: null,
+      eventCursor: 2,
+      sampleCursor: 1,
+      firstEventCursor: 1,
+      firstSampleCursor: 1,
+      missedEvents: 0,
+      missedSamples: 0,
+      events: [{ cursor: 2, source: "runtime", severity: "error", kind: "script_error", message: "Invalid call", file: "res://player.gd", line: 12, function: "_process", timestampMs: 1_100 }],
+      samples: [{ cursor: 1, timestampMs: 1_100, fps: 60, processMs: 8, physicsMs: 2, memoryBytes: 1_024, objectCount: 20, nodeCount: 10, orphanNodeCount: 0, drawCalls: null }],
+      droppedEvents: 0,
+      droppedSamples: 0,
+      runtime: { scenePath: "res://main.tscn", rootName: "Main", rootType: "Node2D", nodeCount: 10, pid: 123 },
+      screenshotId: "capture-1",
+      screenshot: null,
+      capturePending: true,
+      captureError: null,
+    });
+    expect(parsed.events[0]).toMatchObject({ file: "res://player.gd", line: 12, function: "_process" });
+    expect(parsed.samples[0].drawCalls).toBeNull();
+    expect(DebugSnapshotResultSchema.safeParse({ ...parsed, samples: [{ ...parsed.samples[0], fps: Number.POSITIVE_INFINITY }] }).success).toBe(false);
   });
 });

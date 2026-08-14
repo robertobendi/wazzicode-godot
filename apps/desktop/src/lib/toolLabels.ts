@@ -17,6 +17,7 @@ const GODOT_LABELS: Record<string, string> = {
   orient: "Getting oriented in Godot",
   diagnose_connection: "Diagnosing the Godot connection",
   verify: "Verifying imports and GDScript",
+  debug_run: "Observing runtime evidence",
   batch: "Making several Godot changes",
   project_summary: "Reading project settings",
   generate_project_brain: "Mapping the Godot project",

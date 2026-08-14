@@ -5,7 +5,7 @@ const BridgeRouter = preload("bridge_router.gd")
 const HOST := "127.0.0.1"
 const DEFAULT_PORT := 38588
 const PORT_ATTEMPTS := 32
-const PROTOCOL_VERSION := "1.0"
+const PROTOCOL_VERSION := "1.1"
 const MAX_REQUEST_BYTES := 4 * 1024 * 1024
 const CLIENT_TIMEOUT_MS := 20_000
 const TOKEN_BYTES := 24
@@ -21,9 +21,9 @@ var _discovery_path := ""
 var _token := ""
 
 
-func _init(editor: EditorInterface) -> void:
+func _init(editor: EditorInterface, debugger) -> void:
 	_editor = editor
-	_router = BridgeRouter.new(editor, Callable(self, "uptime_ms"))
+	_router = BridgeRouter.new(editor, Callable(self, "uptime_ms"), debugger)
 
 
 func start() -> void:

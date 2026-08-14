@@ -17,6 +17,7 @@ export const WRITE_TOOLS: Record<string, WriteTarget> = {
   godot_create_script: "script",
   godot_apply_text_edits: "script",
   godot_refresh_filesystem: "editor",
+  godot_debug_run: "editor",
   godot_run_project: "editor",
   godot_stop_project: "editor",
 };

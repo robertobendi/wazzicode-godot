@@ -24,6 +24,7 @@ export type ErrorCode =
   | "SAFETY_MODE_BLOCKED"
   | "WRITE_REQUIRES_SNAPSHOT"
   | "PROJECT_BUSY"
+  | "RUN_CHANGED"
   | "UNSUPPORTED_GODOT_VERSION"
   | "INTERNAL_ERROR"
   | "MOCK_MODE_ACTIVE"
@@ -67,6 +68,7 @@ const ERROR_META: Record<ErrorCode, Omit<ErrorDetail, "code" | "message" | "deta
   SAFETY_MODE_BLOCKED: { recoverable: true, suggestedAction: "Adjust `.godot-vibe/config.json` only if the project owner intends to allow this write.", defaultMessage: "Operation blocked by safety mode." },
   WRITE_REQUIRES_SNAPSHOT: { recoverable: true, suggestedAction: "Enable autoSnapshot or commit pending work before retrying.", defaultMessage: "Write operation requires a snapshot." },
   PROJECT_BUSY: { recoverable: true, suggestedAction: "Wait for the active Godot Vibe write to finish, then retry.", defaultMessage: "Another process is writing to this project." },
+  RUN_CHANGED: { recoverable: true, suggestedAction: "Inspect the current play state; the replacement run was intentionally left running.", defaultMessage: "The active game changed before the guarded operation completed." },
   UNSUPPORTED_GODOT_VERSION: { recoverable: false, suggestedAction: "Use the source-audited Godot 4.7.1 release.", defaultMessage: "Godot version is unsupported." },
   INTERNAL_ERROR: { recoverable: false, suggestedAction: "Inspect the details and Godot Output panel.", defaultMessage: "Internal error." },
   MOCK_MODE_ACTIVE: { recoverable: true, suggestedAction: "Disable GVIBE_MOCK to use the real bridge.", defaultMessage: "Running in mock mode." },

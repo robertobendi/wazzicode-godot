@@ -29,7 +29,7 @@ import { isCodexEvent, reduceCodex } from "./codexStream";
 import { toolLabel } from "./toolLabels";
 import {
   boundMcpResultText,
-  isGodotDiagnosticActivity,
+  shouldRetainGodotRawResult,
 } from "./godotDiagnostics";
 
 export interface StreamDraft {
@@ -152,7 +152,7 @@ function applyUser(draft: StreamDraft, v: Raw): StreamDraft {
       ...activity,
       status: block.is_error ? "error" : "ok",
       resultText: extractResultText(block.content),
-      ...(isGodotDiagnosticActivity(activity.name)
+      ...(shouldRetainGodotRawResult(activity.name)
         ? boundMcpResultText(extractRawResultText(block.content))
         : {}),
       endedAt: Date.now(),

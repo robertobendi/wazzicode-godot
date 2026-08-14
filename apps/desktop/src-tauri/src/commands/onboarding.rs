@@ -74,6 +74,7 @@ pub struct DoctorSummary {
     pub config_ok: bool,
     pub addon_detected: bool,
     pub addon_enabled: bool,
+    pub runtime_probe_configured: bool,
     pub brain_ready: bool,
     pub bridge_reachable: bool,
     pub ok: bool,
@@ -641,6 +642,7 @@ fn run_doctor_summary(
                 config_ok: b("/config/exists"),
                 addon_detected: b("/godotAddon/detected"),
                 addon_enabled: b("/godotAddon/enabled"),
+                runtime_probe_configured: b("/godotAddon/runtimeProbeConfigured"),
                 brain_ready: b("/brain/exists") && !b("/brain/stale"),
                 bridge_reachable: b("/bridge/reachable"),
                 ok: b("/ok"),
@@ -649,11 +651,12 @@ fn run_doctor_summary(
                 app,
                 "doctor",
                 &format!(
-                    "project={} config={} addon={}/{} map={} bridge={}",
+                    "project={} config={} addon={}/{}/{} map={} bridge={}",
                     summary.project_valid,
                     summary.config_ok,
                     summary.addon_detected,
                     summary.addon_enabled,
+                    summary.runtime_probe_configured,
                     summary.brain_ready,
                     summary.bridge_reachable
                 ),
@@ -664,6 +667,7 @@ fn run_doctor_summary(
                     && summary.config_ok
                     && summary.addon_detected
                     && summary.addon_enabled
+                    && summary.runtime_probe_configured
                     && summary.brain_ready,
                 detail: "verified".into(),
             });

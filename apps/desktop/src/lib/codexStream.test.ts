@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { initialDraft, reduceStream, type StreamDraft } from "./streamMapper";
+import {
+  MAX_MCP_RESULT_TEXT_CHARS,
+  parseGodotDebugEvidence,
+} from "./godotDiagnostics";
 
 // Fixtures modeled on a real `codex exec --json` run: thread.started → reasoning
 // → an MCP call into Godot → a shell command → the agent's answer → turn.completed.
@@ -44,6 +48,38 @@ const mcpCompleted = {
   },
 };
 
+const debugMcpStarted = {
+  type: "item.started",
+  item: {
+    id: "debug-1",
+    type: "mcp_tool_call",
+    server: "godot_vibe_os",
+    tool: "godot_debug_run",
+    arguments: { scene: "current", observeMs: 3000 },
+  },
+};
+
+const debugRawResult = JSON.stringify({
+  ok: true,
+  data: {
+    verdict: "clean",
+    summary: "No runtime issues observed.",
+    scenePath: "res://main.tscn",
+  },
+});
+
+const debugMcpCompleted = {
+  type: "item.completed",
+  item: {
+    id: "debug-1",
+    type: "mcp_tool_call",
+    server: "godot_vibe_os",
+    tool: "godot_debug_run",
+    status: "completed",
+    result: { content: [{ type: "text", text: debugRawResult }] },
+  },
+};
+
 const shellStarted = {
   type: "item.started",
   item: { id: "i2", type: "command_execution", command: "git status" },
@@ -72,6 +108,66 @@ const turnCompleted = {
 
 function fold(lines: unknown[]): StreamDraft {
   return lines.reduce<StreamDraft>((d, l) => reduceStream(d, l), initialDraft());
+}
+
+function oversizedDebugRawResult(): string {
+  const issues = Array.from({ length: 30 }, (_, index) => ({
+    severity: "error",
+    source: "runtime",
+    kind: `SCRIPT_ERROR_${index}`,
+    message: `Issue ${index}: ${"m".repeat(8_000)}`,
+    file: `res://${"p".repeat(2_000)}_${index}.gd`,
+    line: index + 1,
+    function: `debug_${"f".repeat(2_000)}_${index}`,
+    count: index + 1,
+  }));
+  return JSON.stringify({
+    ok: true,
+    data: {
+      verdict: "issues",
+      summary: "A noisy run produced grouped diagnostics.",
+      scenePath: "res://main.tscn",
+      observeMs: 3_000,
+      lifecycle: {
+        startedByTool: true,
+        attachedToExisting: false,
+        stopRequested: true,
+        stopped: true,
+        playingAfter: false,
+      },
+      diagnostics: {
+        errorCount: 465,
+        warningCount: 0,
+        infoCount: 2,
+        droppedEvents: 4,
+        droppedSamples: 5,
+        missedEvents: 6,
+        missedSamples: 7,
+        truncatedEvents: 3,
+        omittedIssueGroups: 2,
+        issues,
+      },
+      performance: {
+        sampleCount: 24,
+        fps: { min: 44, average: 57.2, max: 60 },
+        frameMs: { p50: 16.4, p95: 23.8, max: 31 },
+        findings: [{
+          severity: "warning",
+          code: "FRAME_TIME_BUDGET",
+          message: "Frame time exceeded the configured budget.",
+        }],
+      },
+      runtime: {
+        connected: true,
+        runId: "run-noisy",
+        rootName: "Main",
+        rootType: "Node2D",
+        nodeCount: 84,
+        pid: 8_404,
+      },
+      screenshot: { available: true, width: 1280, height: 720, bytes: 90_000 },
+    },
+  });
 }
 
 describe("reduceStream over Codex events", () => {
@@ -120,6 +216,52 @@ describe("reduceStream over Codex events", () => {
     expect(done.activities[0].resultRaw).toBe(mcpRawResult);
     expect(done.activities[0].resultRawTruncated).toBeUndefined();
     expect(done.hasGodotTools).toBe(true);
+  });
+
+  it("preserves debug-run evidence through the shared MCP result path", () => {
+    const done = fold([debugMcpStarted, debugMcpCompleted]);
+    expect(done.activities[0]).toMatchObject({
+      name: "mcp__godot-vibe-os__godot_debug_run",
+      friendlyLabel: "Observing runtime evidence",
+      resultRaw: debugRawResult,
+    });
+  });
+
+  it("compacts oversized debug evidence into parseable structured evidence", () => {
+    const raw = oversizedDebugRawResult();
+    expect(raw.length).toBeGreaterThan(MAX_MCP_RESULT_TEXT_CHARS);
+    const completed = {
+      ...debugMcpCompleted,
+      item: {
+        ...debugMcpCompleted.item,
+        result: { content: [{ type: "text", text: raw }] },
+      },
+    };
+
+    const activity = fold([debugMcpStarted, completed]).activities[0];
+    expect(activity.resultRawTruncated).toBe(true);
+    expect(activity.resultRaw!.length).toBeLessThan(MAX_MCP_RESULT_TEXT_CHARS);
+    expect(() => JSON.parse(activity.resultRaw!)).not.toThrow();
+    const evidence = parseGodotDebugEvidence(activity.resultRaw!);
+    expect(evidence).toMatchObject({
+      verdict: "issues",
+      lifecycle: { startedByTool: true, stopped: true },
+      diagnostics: {
+        errorCount: 465,
+        droppedEvents: 4,
+        droppedSamples: 5,
+        missedEvents: 6,
+        missedSamples: 7,
+        truncatedEvents: 3,
+        omittedIssueGroups: 7,
+      },
+      performance: { sampleCount: 24, fps: { average: 57.2 } },
+      runtime: { runId: "run-noisy", nodeCount: 84, pid: 8_404 },
+      screenshot: { available: true, width: 1280, height: 720, bytes: 90_000 },
+    });
+    expect(evidence?.diagnostics.issues).toHaveLength(25);
+    expect(evidence?.diagnostics.issues.at(-1)?.count).toBe(25);
+    expect(evidence?.diagnostics.issues[0].message.length).toBeLessThanOrEqual(512);
   });
 
   it("marks a shell command that exited non-zero as an error", () => {

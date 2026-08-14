@@ -1,9 +1,11 @@
 [gd_scene format=3 uid="uid://xtxuot72m56t"]
 
 [ext_resource type="PackedScene" path="res://template.tscn" id="1_template"]
+[ext_resource type="Script" path="res://debug_runtime.gd" id="2_debug"]
 
 [node name="FixtureRoot" type="Node2D" unique_id=799038386]
 editor_description = "original description"
+script = ExtResource("2_debug")
 
 [node name="Anchor" type="Node2D" parent="." unique_id=1179354783]
 position = Vector2(10, 20)

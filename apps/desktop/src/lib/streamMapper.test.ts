@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { initialDraft, reduceStream, type StreamDraft } from "./streamMapper";
-import { MAX_MCP_RESULT_TEXT_CHARS } from "./godotDiagnostics";
+import {
+  MAX_MCP_RESULT_TEXT_CHARS,
+  parseGodotDebugEvidence,
+} from "./godotDiagnostics";
 
 // Fixtures modeled on real Claude Code 2.1.198 `-p --output-format stream-json
 // --verbose --include-partial-messages` lines (fields trimmed to what the
@@ -60,6 +63,21 @@ const diagnosticToolUseAssistant = {
   },
 };
 
+const debugToolUseAssistant = {
+  type: "assistant",
+  message: {
+    role: "assistant",
+    content: [
+      {
+        type: "tool_use",
+        id: "toolu_1",
+        name: "mcp__godot-vibe-os__godot_debug_run",
+        input: { scene: "current", observeMs: 3000 },
+      },
+    ],
+  },
+};
+
 const toolResultUser = (isError = false) => ({
   type: "user",
   message: {
@@ -87,6 +105,66 @@ const resultEvent = {
 
 function fold(lines: unknown[]): StreamDraft {
   return lines.reduce<StreamDraft>((d, l) => reduceStream(d, l), initialDraft());
+}
+
+function oversizedDebugRawResult(): string {
+  const issues = Array.from({ length: 30 }, (_, index) => ({
+    severity: "error",
+    source: "runtime",
+    kind: `SCRIPT_ERROR_${index}`,
+    message: `Issue ${index}: ${"m".repeat(8_000)}`,
+    file: `res://${"p".repeat(2_000)}_${index}.gd`,
+    line: index + 1,
+    function: `debug_${"f".repeat(2_000)}_${index}`,
+    count: index + 1,
+  }));
+  return JSON.stringify({
+    ok: true,
+    data: {
+      verdict: "issues",
+      summary: "A noisy run produced grouped diagnostics.",
+      scenePath: "res://main.tscn",
+      observeMs: 3_000,
+      lifecycle: {
+        startedByTool: true,
+        attachedToExisting: false,
+        stopRequested: true,
+        stopped: true,
+        playingAfter: false,
+      },
+      diagnostics: {
+        errorCount: 465,
+        warningCount: 0,
+        infoCount: 2,
+        droppedEvents: 4,
+        droppedSamples: 5,
+        missedEvents: 6,
+        missedSamples: 7,
+        truncatedEvents: 3,
+        omittedIssueGroups: 2,
+        issues,
+      },
+      performance: {
+        sampleCount: 24,
+        fps: { min: 44, average: 57.2, max: 60 },
+        frameMs: { p50: 16.4, p95: 23.8, max: 31 },
+        findings: [{
+          severity: "warning",
+          code: "FRAME_TIME_BUDGET",
+          message: "Frame time exceeded the configured budget.",
+        }],
+      },
+      runtime: {
+        connected: true,
+        runId: "run-noisy",
+        rootName: "Main",
+        rootType: "Node2D",
+        nodeCount: 84,
+        pid: 8_404,
+      },
+      screenshot: { available: true, width: 1280, height: 720, bytes: 90_000 },
+    },
+  });
 }
 
 describe("reduceStream", () => {
@@ -153,6 +231,76 @@ describe("reduceStream", () => {
     expect(d.activities[0].resultRaw).toBe(raw);
     expect(d.activities[0].resultRawTruncated).toBeUndefined();
     expect(d.activities[0].resultText!.length).toBeLessThanOrEqual(201);
+  });
+
+  it("preserves debug-run evidence through the same raw-result path", () => {
+    const raw = JSON.stringify({
+      ok: true,
+      data: {
+        verdict: "clean",
+        summary: "No runtime issues observed.",
+        scenePath: "res://main.tscn",
+      },
+    });
+    const result = {
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: [{ type: "text", text: raw }],
+          },
+        ],
+      },
+    };
+    const d = fold([debugToolUseAssistant, result]);
+    expect(d.activities[0]).toMatchObject({
+      friendlyLabel: "Observing runtime evidence",
+      resultRaw: raw,
+    });
+  });
+
+  it("compacts oversized debug evidence without breaking its JSON envelope", () => {
+    const raw = oversizedDebugRawResult();
+    expect(raw.length).toBeGreaterThan(MAX_MCP_RESULT_TEXT_CHARS);
+    const result = {
+      type: "user",
+      message: {
+        content: [{
+          type: "tool_result",
+          tool_use_id: "toolu_1",
+          content: [{ type: "text", text: raw }],
+        }],
+      },
+    };
+
+    const activity = fold([debugToolUseAssistant, result]).activities[0];
+    expect(activity.resultRawTruncated).toBe(true);
+    expect(activity.resultRaw!.length).toBeLessThan(MAX_MCP_RESULT_TEXT_CHARS);
+    expect(() => JSON.parse(activity.resultRaw!)).not.toThrow();
+    const evidence = parseGodotDebugEvidence(activity.resultRaw!);
+    expect(evidence).toMatchObject({
+      verdict: "issues",
+      lifecycle: { startedByTool: true, stopped: true },
+      diagnostics: {
+        errorCount: 465,
+        droppedEvents: 4,
+        droppedSamples: 5,
+        missedEvents: 6,
+        missedSamples: 7,
+        truncatedEvents: 3,
+        omittedIssueGroups: 7,
+      },
+      performance: { sampleCount: 24, fps: { average: 57.2 } },
+      runtime: { runId: "run-noisy", nodeCount: 84, pid: 8_404 },
+      screenshot: { available: true, width: 1280, height: 720, bytes: 90_000 },
+    });
+    expect(evidence?.diagnostics.issues).toHaveLength(25);
+    expect(evidence?.diagnostics.issues.at(-1)?.count).toBe(25);
+    expect(evidence?.diagnostics.issues[0].message.length).toBeLessThanOrEqual(512);
+    expect(evidence?.diagnostics.issues[0].file!.length).toBeLessThanOrEqual(512);
+    expect(evidence?.diagnostics.issues[0].function!.length).toBeLessThanOrEqual(256);
   });
 
   it("bounds preserved MCP text and records truncation", () => {

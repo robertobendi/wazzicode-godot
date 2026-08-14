@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter};
 
 const DISCOVERY_REL: &str = ".godot/godot-vibe-os/bridge.json";
 const DEFAULT_HOST: &str = "127.0.0.1";
-const PROTOCOL_VERSION: &str = "1.0";
+const PROTOCOL_VERSION: &str = "1.1";
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(1500);
 const CALL_TIMEOUT: Duration = Duration::from_secs(15);
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -362,7 +362,7 @@ mod tests {
         std::fs::write(
             directory.join("bridge.json"),
             format!(
-                r#"{{"host":"127.0.0.1","port":38588,"token":"{}","projectPath":"{}","protocolVersion":"1.0"}}"#,
+                r#"{{"host":"127.0.0.1","port":38588,"token":"{}","projectPath":"{}","protocolVersion":"1.1"}}"#,
                 "s".repeat(32),
                 root.display()
             ),
@@ -383,7 +383,7 @@ mod tests {
         std::fs::write(
             &file,
             format!(
-                r#"{{"host":"example.com","port":38588,"token":"{}","projectPath":"{}","protocolVersion":"1.0"}}"#,
+                r#"{{"host":"example.com","port":38588,"token":"{}","projectPath":"{}","protocolVersion":"1.1"}}"#,
                 "s".repeat(32),
                 root.display()
             ),
@@ -393,7 +393,7 @@ mod tests {
         std::fs::write(
             &file,
             format!(
-                r#"{{"host":"127.0.0.1","port":38588,"token":"{}","projectPath":"/another/project","protocolVersion":"1.0"}}"#,
+                r#"{{"host":"127.0.0.1","port":38588,"token":"{}","projectPath":"/another/project","protocolVersion":"1.1"}}"#,
                 "s".repeat(32)
             ),
         )

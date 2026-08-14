@@ -39,6 +39,7 @@ export interface DoctorSummary {
   configOk: boolean;
   addonDetected: boolean;
   addonEnabled: boolean;
+  runtimeProbeConfigured: boolean;
   brainReady: boolean;
   bridgeReachable: boolean;
   ok: boolean;

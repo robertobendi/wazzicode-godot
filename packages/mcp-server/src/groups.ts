@@ -4,12 +4,12 @@ export const TOOL_GROUPS: ToolGroupMeta[] = [
   { name: "core", description: "Orientation, scenes, nodes, resources, captures, project map, batching, and verification.", defaultActive: true },
   { name: "scripting", description: "Read, hash, search, create, and edit Godot text resources.", defaultActive: true },
   { name: "reflection", description: "Live ClassDB anti-hallucination queries.", defaultActive: true },
-  { name: "runtime", description: "Run/stop the project and inspect play status.", defaultActive: true },
+  { name: "runtime", description: "Run/stop the project, inspect play state, and collect bounded debug evidence.", defaultActive: true },
 ];
 const GROUPS: Record<string, string> = {
   godot_read_script: "scripting", godot_get_script_sha: "scripting", godot_find_in_file: "scripting",
   godot_create_script: "scripting", godot_apply_text_edits: "scripting", godot_reflect: "reflection",
-  godot_run_project: "runtime", godot_stop_project: "runtime", godot_get_play_status: "runtime",
+  godot_debug_run: "runtime", godot_run_project: "runtime", godot_stop_project: "runtime", godot_get_play_status: "runtime",
 };
 export function groupOf(name: string): string { return GROUPS[name] ?? "core"; }
 export function defaultActiveGroups(): Set<string> { return new Set(TOOL_GROUPS.filter((group) => group.defaultActive).map((group) => group.name)); }
