@@ -15,7 +15,7 @@ export const DEFAULT_QUICK_ACTIONS: QuickAction[] = [
   {
     label: "Verify the project",
     prompt:
-      "Run godot_verify, fix every import or GDScript failure it finds, and rerun it until it passes. If tests are not configured, say so plainly instead of claiming they ran.",
+      "Run godot_verify and fix every import or GDScript failure. If res://tests/run_tests.gd exists, run godot_test_run too and report its independent result. Never present import/syntax success as passing tests.",
   },
   {
     label: "Map the active scene",

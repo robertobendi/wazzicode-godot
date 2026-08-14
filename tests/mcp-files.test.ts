@@ -16,6 +16,7 @@ import {
   godotReadScript,
   godotVerify,
 } from "../packages/mcp-server/src/tools/godotFiles.js";
+import { godotTestRun } from "../packages/mcp-server/src/tools/godotTests.js";
 
 const temporaryProjects: string[] = [];
 
@@ -443,4 +444,91 @@ describe("Godot verification", () => {
       expect(envelope.meta.projectPath).toBe(path.resolve(relativeFixture));
     }
   }, 20_000);
+});
+
+describe("Godot project test runner", () => {
+  async function executable(root: string, source: string): Promise<string> {
+    const file = path.join(root, "fake godot");
+    await writeFile(file, `#!/usr/bin/env node\n${source}\n`, "utf8");
+    await chmod(file, 0o755);
+    return file;
+  }
+
+  async function testProject(): Promise<string> {
+    const root = await project();
+    await mkdir(path.join(root, "tests"), { recursive: true });
+    await writeFile(path.join(root, "tests", "run_tests.gd"), "extends SceneTree\n", "utf8");
+    return root;
+  }
+
+  it("runs the contained project runner and preserves bounded head and tail evidence", async () => {
+    if (process.platform === "win32") return;
+    const root = await testProject();
+    const binary = await executable(root, [
+      'process.stdout.write("TEST START\\n");',
+      'process.stdout.write("x".repeat(140 * 1024));',
+      'process.stdout.write("\\nTEST END\\n");',
+    ].join("\n"));
+
+    const envelope = await godotTestRun.run({ godotBinary: binary, timeoutMs: 5_000 }, buildContext({ mock: true, projectPath: root }));
+
+    expect(envelope.ok).toBe(true);
+    if (envelope.ok) {
+      expect(envelope.data).toMatchObject({
+        verdict: "pass",
+        runnerPath: "res://tests/run_tests.gd",
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        outputTruncated: true,
+      });
+      expect(envelope.data.output).toContain("TEST START");
+      expect(envelope.data.output).toContain("output bytes omitted");
+      expect(envelope.data.output).toContain("TEST END");
+      expect(envelope.data.outputBytes).toBeGreaterThan(140 * 1024);
+      expect(envelope.data.output.length).toBeLessThan(100 * 1024);
+      expect(envelope.warnings).toEqual([expect.stringContaining("clipped")]);
+    }
+  });
+
+  it("reports nonzero exits and bounded timeouts as observed test failures", async () => {
+    if (process.platform === "win32") return;
+    const failedRoot = await testProject();
+    const failedBinary = await executable(failedRoot, 'process.stderr.write("ASSERTION FAILED\\n"); process.exitCode = 7;');
+    const failed = await godotTestRun.run({ godotBinary: failedBinary, timeoutMs: 5_000 }, buildContext({ mock: true, projectPath: failedRoot }));
+    expect(failed.ok).toBe(true);
+    if (failed.ok) {
+      expect(failed.data).toMatchObject({ verdict: "fail", exitCode: 7, timedOut: false });
+      expect(failed.data.output).toContain("ASSERTION FAILED");
+      expect(failed.warnings).toEqual([expect.stringContaining("exit code 7")]);
+    }
+
+    const timeoutRoot = await testProject();
+    const timeoutBinary = await executable(timeoutRoot, "setInterval(() => {}, 10_000);");
+    const timedOut = await godotTestRun.run({ godotBinary: timeoutBinary, timeoutMs: 1_000 }, buildContext({ mock: true, projectPath: timeoutRoot }));
+    expect(timedOut.ok).toBe(true);
+    if (timedOut.ok) {
+      expect(timedOut.data).toMatchObject({ verdict: "timeout", timedOut: true });
+      expect(timedOut.data.durationMs).toBeLessThan(3_000);
+      expect(timedOut.warnings).toEqual([expect.stringContaining("terminated")]);
+    }
+  }, 10_000);
+
+  it("rejects an absent or escaped default runner before spawning", async () => {
+    const root = await project();
+    const ctx = buildContext({ mock: true, projectPath: root });
+    const missing = await godotTestRun.run({}, ctx);
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error.code).toBe("RESOURCE_NOT_FOUND");
+
+    if (process.platform !== "win32") {
+      const outside = await project();
+      await writeFile(path.join(outside, "outside.gd"), "extends SceneTree\n", "utf8");
+      await mkdir(path.join(root, "tests"), { recursive: true });
+      await symlink(path.join(outside, "outside.gd"), path.join(root, "tests", "run_tests.gd"));
+      const escaped = await godotTestRun.run({}, ctx);
+      expect(escaped.ok).toBe(false);
+      if (!escaped.ok) expect(escaped.error.message).toContain("outside the Godot project");
+    }
+  });
 });

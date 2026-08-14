@@ -207,7 +207,9 @@ describe("gvibe init", () => {
       expect(contents).toContain("godot_orient");
       expect(contents).toContain("godot_reflect");
       expect(contents).toContain("godot_verify");
+      expect(contents).toContain("godot_test_run");
       expect(contents).toContain("godot_debug_run");
+      expect(contents).toContain("gvibe doctor --project=.");
       expect(contents).toContain("<!-- END godot-vibe-os -->");
     }
   });

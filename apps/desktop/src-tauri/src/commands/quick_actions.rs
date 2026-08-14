@@ -24,7 +24,7 @@ fn default_quick_actions() -> Vec<QuickAction> {
     vec![
         QuickAction {
             label: "Verify the project".into(),
-            prompt: "Run godot_verify, fix every import or GDScript failure it finds, and rerun it until it passes. If tests are not configured, say so plainly instead of claiming they ran.".into(),
+            prompt: "Run godot_verify and fix every import or GDScript failure. If res://tests/run_tests.gd exists, run godot_test_run too and report its independent result. Never present import/syntax success as passing tests.".into(),
         },
         QuickAction {
             label: "Map the active scene".into(),
@@ -93,6 +93,7 @@ mod tests {
         assert!(d
             .iter()
             .all(|a| !a.label.is_empty() && !a.prompt.is_empty()));
+        assert!(d[0].prompt.contains("godot_test_run"));
     }
 
     #[test]

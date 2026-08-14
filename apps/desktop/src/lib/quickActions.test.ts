@@ -13,6 +13,7 @@ describe("DEFAULT_QUICK_ACTIONS", () => {
       expect(a.prompt.trim()).not.toBe("");
     }
     expect(DEFAULT_QUICK_ACTIONS[0].label).toBe("Verify the project");
+    expect(DEFAULT_QUICK_ACTIONS[0].prompt).toContain("godot_test_run");
   });
 });
 

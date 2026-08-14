@@ -10,6 +10,7 @@ import {
   buildContext,
   createMockBridgeClient,
   readConventionsResource,
+  toolAnnotations,
 } from "@gvibe/mcp-server";
 import { GVibeConfigSchema, listSnapshots, readActions, writeConfig } from "@gvibe/safety";
 import { executeTool } from "../packages/mcp-server/src/execute.js";
@@ -73,6 +74,7 @@ const EXPECTED_TOOLS = [
   "godot_orient",
   "godot_diagnose_connection",
   "godot_verify",
+  "godot_test_run",
   "godot_batch",
   "godot_project_summary",
   "godot_generate_project_brain",
@@ -105,10 +107,10 @@ const EXPECTED_TOOLS = [
 ] as const;
 
 describe("Godot MCP registry", () => {
-  it("registers exactly 32 focused, uniquely named Godot tools", () => {
+  it("registers exactly 33 focused, uniquely named Godot tools", () => {
     const names = allTools.map((tool) => tool.name);
     expect(names).toEqual(EXPECTED_TOOLS);
-    expect(new Set(names).size).toBe(32);
+    expect(new Set(names).size).toBe(33);
     expect(names.every((name) => name.startsWith("godot_"))).toBe(true);
     expect(names.some((name) => /unity|prefab|gameobject/i.test(name))).toBe(false);
   });
@@ -126,14 +128,18 @@ describe("Godot MCP registry", () => {
     expect(allTools.find((tool) => tool.name === "godot_open_scene")).toMatchObject({ write: true, writeTarget: "editor" });
     expect(allTools.find((tool) => tool.name === "godot_run_project")).toMatchObject({ write: true, writeTarget: "editor" });
     expect(allTools.find((tool) => tool.name === "godot_debug_run")).toMatchObject({ write: true, writeTarget: "editor" });
+    const testRun = allTools.find((tool) => tool.name === "godot_test_run");
+    expect(testRun).toBeDefined();
+    expect(toolAnnotations(testRun!).readOnlyHint).toBe(false);
   });
 
   it("teaches Godot-specific orientation, reflection, editing, and verification", () => {
     expect(SERVER_INSTRUCTIONS).toContain("godot_orient");
     expect(SERVER_INSTRUCTIONS).toContain("godot_reflect");
+    expect(SERVER_INSTRUCTIONS).toContain("godot_test_run");
     expect(SERVER_INSTRUCTIONS).toContain("NodePath");
     expect(SERVER_INSTRUCTIONS).toContain("UndoRedo");
-    expect(SERVER_INSTRUCTIONS).toContain("tests as not_configured");
+    expect(SERVER_INSTRUCTIONS).toContain("not a test suite");
     expect(SERVER_INSTRUCTIONS).not.toContain("MonoBehaviour");
   });
 });

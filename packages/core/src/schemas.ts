@@ -353,3 +353,17 @@ export const VerifyResultSchema = z.object({
   warnings: z.array(z.string()),
 });
 export type VerifyResult = z.infer<typeof VerifyResultSchema>;
+
+export const TestRunResultSchema = z.object({
+  verdict: z.enum(["pass", "fail", "timeout"]),
+  runnerPath: z.string(),
+  command: z.string(),
+  exitCode: z.number().int().nullable(),
+  signal: z.string().nullable(),
+  timedOut: z.boolean(),
+  durationMs: z.number().int().nonnegative(),
+  output: z.string(),
+  outputBytes: z.number().int().nonnegative(),
+  outputTruncated: z.boolean(),
+});
+export type TestRunResult = z.infer<typeof TestRunResultSchema>;

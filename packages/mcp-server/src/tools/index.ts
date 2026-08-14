@@ -15,11 +15,13 @@ import {
   godotQueryProjectBrain,
 } from "./godotComposite.js";
 import { godotDebugRun } from "./godotDebug.js";
+import { godotTestRun } from "./godotTests.js";
 
 export const allTools: AnyToolDef[] = [
   godotOrient,
   godotDiagnoseConnection,
   godotVerify,
+  godotTestRun,
   godotBatch,
   godotProjectSummary,
   godotGenerateProjectBrain,
@@ -61,4 +63,5 @@ export {
   godotOpenScene, godotOrient, godotProjectSummary, godotQueryProjectBrain,
   godotReadScript, godotReflect, godotRefreshFilesystem, godotReparentNode,
   godotRunProject, godotSaveScene, godotSetProperty, godotStopProject, godotVerify,
+  godotTestRun,
 };
