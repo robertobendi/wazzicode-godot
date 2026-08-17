@@ -109,14 +109,14 @@ export default function ProjectPicker({
     setChecking(true);
     try {
       const info = await api.validateGodotProject(path);
-      if (!info.ok || !info.brainReady) {
-        setCandidate(info.ok ? info : null);
-        if (!info.ok) {
-          setError("That recent folder is no longer a valid Godot project.");
-        }
+      if (!info.ok) {
+        setCandidate(null);
+        setError("That recent folder is no longer a valid Godot project.");
         return;
       }
-      await openPrepared(info);
+      setCandidate(info);
+      setChecking(false);
+      await openCandidate(info);
     } catch (e) {
       setError(String(e));
     } finally {

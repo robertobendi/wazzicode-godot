@@ -197,9 +197,7 @@ pub fn project_map_is_initialized(project: &Path) -> bool {
     std::fs::read(directory.join("manifest.json"))
         .ok()
         .and_then(|raw| serde_json::from_slice::<KnowledgeManifest>(&raw).ok())
-        .map(|manifest| {
-            manifest.schema_version == KNOWLEDGE_SCHEMA_VERSION && !manifest.dirty.value
-        })
+        .map(|manifest| manifest.schema_version == KNOWLEDGE_SCHEMA_VERSION)
         .unwrap_or(false)
 }
 
@@ -1395,9 +1393,15 @@ mod tests {
         assert_eq!(map.relations.len(), 1);
         assert!(project_map_is_initialized(&root));
         let manifest_path = store_path(&root, "manifest.json");
-        let mut dirty = manifest;
+        // Dirty is a staleness signal, not a missing map: reads reconcile it
+        // through `brain --ensure`, so the picker must still treat it as built.
+        let mut dirty = manifest.clone();
         dirty.dirty.value = true;
         std::fs::write(&manifest_path, serde_json::to_vec(&dirty).unwrap()).unwrap();
+        assert!(project_map_is_initialized(&root));
+        let mut outdated = manifest;
+        outdated.schema_version = KNOWLEDGE_SCHEMA_VERSION + 1;
+        std::fs::write(&manifest_path, serde_json::to_vec(&outdated).unwrap()).unwrap();
         assert!(!project_map_is_initialized(&root));
         let _ = std::fs::remove_dir_all(root);
     }

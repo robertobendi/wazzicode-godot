@@ -68,12 +68,18 @@ export async function buildKnowledgeBase(
     addRelation(relations, relationKeys, "contains", projectId, id, filesystem(`res://addons/${addon}`), observedAt);
   }
 
+  const gdScriptsByPath = new Map(brain.architecture.gdScripts.map((script) => [script.path, script]));
   const assetIds = new Map<string, string>();
   for (const file of scan.files) {
     const kind = entityKindForFile(file);
     const id = assetId(kind, file.path);
     assetIds.set(file.path, id);
-    addEntity(entities, entityIds, assetEntity(file, id, kind, observedAt));
+    const entity = assetEntity(file, id, kind, observedAt);
+    const script = gdScriptsByPath.get(file.path);
+    // Scripts without `class_name` declare no class, so their surface belongs
+    // on the script entity rather than an invented class one.
+    if (script && !script.className) entity.facts.push(...gdScriptSurfaceFacts(script, observedAt));
+    addEntity(entities, entityIds, entity);
   }
 
   const moduleIds = addModules(entities, entityIds, relations, relationKeys, scan, addonIds, projectId, observedAt);
@@ -87,7 +93,8 @@ export async function buildKnowledgeBase(
   const classByName = new Map<string, string[]>();
   const classByScript = new Map<string, string[]>();
   for (const script of brain.architecture.gdScripts) {
-    const entity = gdClassEntity(script, observedAt);
+    if (!script.className) continue;
+    const entity = gdClassEntity(script, script.className, observedAt);
     addEntity(entities, entityIds, entity);
     addMapList(classByName, entity.name, entity.id);
     addMapList(classByScript, script.path, entity.id);
@@ -113,7 +120,15 @@ export async function buildKnowledgeBase(
     if (script.extends) {
       const targetId = script.extendsPath
         ? classByScript.get(script.extendsPath)?.[0]
-          ?? ensureExternalEntity(entities, entityIds, "class", classNameFromPath(script.extendsPath), script.extendsPath, observedAt)
+          ?? assetIds.get(script.extendsPath)
+          ?? ensureExternalEntity(
+            entities,
+            entityIds,
+            kindFromResourcePath(script.extendsPath),
+            nameFromPath(script.extendsPath),
+            script.extendsPath,
+            observedAt,
+          )
         : classByName.get(script.extends)?.[0]
           ?? ensureExternalEntity(entities, entityIds, "class", script.extends, undefined, observedAt);
       addRelation(relations, relationKeys, "extends", sourceId, targetId, gdscript(script.path, script.extendsLine ?? 1), observedAt, 0.98);
@@ -315,13 +330,8 @@ function assetEntity(
   };
 }
 
-function gdClassEntity(script: GDScriptAnalysis, observedAt: number): KnowledgeEntity {
-  const name = script.className ?? classNameFromPath(script.path);
-  const classProvenance = gdscript(script.path, script.classNameLine ?? 1);
+function gdScriptSurfaceFacts(script: GDScriptAnalysis, observedAt: number): KnowledgeFact[] {
   const facts: KnowledgeFact[] = [
-    fact("language", "GDScript", filesystem(script.path), observedAt),
-    fact("className", name, classProvenance, observedAt, script.className ? 1 : 0.8),
-    fact("globalClass", Boolean(script.className), classProvenance, observedAt, 0.98),
     fact("tool", script.tool, gdscript(script.path, 1), observedAt, 0.98),
   ];
   addDefinedFact(facts, "baseClass", script.extends, gdscript(script.path, script.extendsLine ?? 1), observedAt, 0.98);
@@ -330,6 +340,17 @@ function gdClassEntity(script: GDScriptAnalysis, observedAt: number): KnowledgeE
   for (const exported of script.exports) {
     facts.push(fact("export", `${exported.name}${exported.type ? `: ${exported.type}` : ""}`, gdscript(script.path, exported.line, exported.annotation), observedAt, 0.95));
   }
+  return facts;
+}
+
+function gdClassEntity(script: GDScriptAnalysis, name: string, observedAt: number): KnowledgeEntity {
+  const classProvenance = gdscript(script.path, script.classNameLine ?? 1);
+  const facts: KnowledgeFact[] = [
+    fact("language", "GDScript", filesystem(script.path), observedAt),
+    fact("className", name, classProvenance, observedAt, 1),
+    fact("globalClass", true, classProvenance, observedAt, 0.98),
+    ...gdScriptSurfaceFacts(script, observedAt),
+  ];
   return {
     id: `class:${encodedPath(script.path)}:${encodeURIComponent(name)}`,
     kind: "class",
@@ -382,6 +403,13 @@ function addModules(
   }
   const moduleIds = new Map<string, string>();
   for (const directory of [...directories].sort()) {
+    // `res://addons/<name>` already has an addon entity; a module twin would
+    // only add an identically named nesting level above the addon's files.
+    const addonId = directAddonOwner(directory, addonIds);
+    if (addonId) {
+      moduleIds.set(directory, addonId);
+      continue;
+    }
     const id = `module:${directory}`;
     moduleIds.set(directory, id);
     addEntity(entities, entityIds, {
@@ -394,8 +422,8 @@ function addModules(
     });
   }
   for (const [directory, id] of moduleIds) {
-    const parent = resourceDirectory(directory);
-    const owner = directAddonOwner(directory, addonIds) ?? moduleIds.get(parent) ?? projectId;
+    if (directAddonOwner(directory, addonIds)) continue;
+    const owner = moduleIds.get(resourceDirectory(directory)) ?? projectId;
     addRelation(relations, relationKeys, "contains", owner, id, derived(directory), observedAt);
   }
   return moduleIds;
@@ -551,14 +579,6 @@ function scopeForPath(resourcePath: string): KnowledgeScope {
 
 function nameFromPath(resourcePath: string): string {
   return path.posix.basename(resourcePath, path.posix.extname(resourcePath));
-}
-
-function classNameFromPath(resourcePath: string): string {
-  return nameFromPath(resourcePath)
-    .split(/[^A-Za-z0-9]+/)
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join("") || "AnonymousScript";
 }
 
 function compareEntities(left: KnowledgeEntity, right: KnowledgeEntity): number {

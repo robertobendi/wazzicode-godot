@@ -469,7 +469,7 @@ function matchStructuredQuery(
     }));
   }
   if (parsed.kind === "module") {
-    const modules = brain.entities.filter((entity) => entity.kind === "module" && entityMatches(entity, parsed.target));
+    const modules = brain.entities.filter((entity) => (entity.kind === "module" || entity.kind === "addon") && entityMatches(entity, parsed.target));
     const contains = new Map<string, KnowledgeRelation[]>();
     for (const relation of brain.relations) {
       if (relation.kind === "contains") addToList(contains, relation.from, relation);
