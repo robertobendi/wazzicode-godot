@@ -5,6 +5,20 @@ import type { ToolGroupController } from "./groups.js";
 
 export type { WriteTarget };
 
+export interface ProgressUpdate {
+  progress: number;
+  total?: number;
+  message?: string;
+}
+/** Emits notifications/progress for the in-flight call. Absent unless the client asked for it. */
+export type ProgressReporter = (update: ProgressUpdate) => void;
+
+export interface ConfirmRequest {
+  message: string;
+}
+/** Asks the project owner to approve one blocked write. Absent unless the client can elicit. */
+export type WriteConfirmer = (request: ConfirmRequest) => Promise<boolean>;
+
 export interface ToolContext {
   bridge: BridgeClient;
   projectPath: string;
@@ -15,6 +29,10 @@ export interface ToolContext {
   toolGroups?: ToolGroupController;
   /** Compact generated project-map context appended to the MCP server primer. */
   projectKnowledgePrimer?: string;
+  /** Per-call progress channel; set by createServer when the client sent a progressToken. */
+  progress?: ProgressReporter;
+  /** Per-call interactive approval channel; set by createServer for elicitation-capable clients. */
+  confirmWrite?: WriteConfirmer;
 }
 
 export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unknown> {

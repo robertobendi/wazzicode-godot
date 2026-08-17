@@ -474,6 +474,38 @@ describe("godot_debug_run", () => {
     }
   });
 
+  it("reports each long-running phase to a client that asked for progress", async () => {
+    const root = await project();
+    const { bridge } = debugBridge();
+    const updates: Array<{ progress: number; total?: number; message?: string }> = [];
+    const ctx = { ...buildContext({ bridgeOverride: bridge, projectPath: root }), progress: (update: { progress: number; total?: number; message?: string }) => updates.push(update) };
+
+    const envelope = await executeTool(godotDebugRun, { observeMs: 250 }, ctx);
+
+    expect(envelope.ok).toBe(true);
+    expect(updates.map((update) => update.progress)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(updates.every((update) => update.total === 5)).toBe(true);
+    expect(updates.map((update) => update.message)).toEqual([
+      "Reading Godot play state…",
+      "Launching the current scene…",
+      "Observing runtime logs and performance for 250ms…",
+      "Requesting one in-game screenshot…",
+      "Stopping the run this call started…",
+      "Summarizing the debug evidence packet…",
+    ]);
+  });
+
+  it("stays silent when the client did not ask for progress", async () => {
+    const root = await project();
+    const { bridge } = debugBridge();
+    const ctx = buildContext({ bridgeOverride: bridge, projectPath: root });
+
+    const envelope = await executeTool(godotDebugRun, { observeMs: 250 }, ctx);
+
+    expect(envelope.ok).toBe(true);
+    expect(ctx.progress).toBeUndefined();
+  });
+
   it("is blocked before touching the bridge in read-only mode", async () => {
     const root = await project();
     await writeConfig(root, GVibeConfigSchema.parse({ safetyMode: "read_only" }));

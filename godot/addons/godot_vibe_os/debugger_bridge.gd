@@ -8,6 +8,12 @@ const MAX_SAMPLES := 240
 const MAX_DRAINED_EDITOR_EVENTS := 512
 const CAPTURE_WIDTH := 1280
 const CAPTURE_HEIGHT := 720
+const MAX_SEQUENCE_FRAMES := 16
+const MIN_SEQUENCE_FRAMES := 2
+const MIN_SEQUENCE_INTERVAL_MS := 100
+const MAX_SEQUENCE_INTERVAL_MS := 2000
+const MIN_SEQUENCE_WIDTH := 160
+const MAX_SEQUENCE_PAGE := 4
 
 var _editor_logger: Logger = DebugLogger.new("editor")
 var _logger_registered := false
@@ -28,6 +34,12 @@ var _screenshot_id := ""
 var _screenshot = null
 var _capture_pending := false
 var _capture_error = null
+var _frames_id := ""
+var _frames_state := "complete"
+var _frames: Array[Dictionary] = []
+var _frames_requested := {"frames": 8, "intervalMs": 400, "width": 480, "format": "jpg", "quality": 70}
+var _frames_dropped := 0
+var _frames_error = null
 
 
 func start() -> void:
@@ -89,6 +101,19 @@ func _capture(message: String, data: Array, session_id: int) -> bool:
 			if request_id == _screenshot_id:
 				_capture_pending = false
 				_capture_error = str(data[1]) if data.size() > 1 else "Runtime screenshot failed."
+		"godot_vibe_os:frame":
+			_accept_frame(_dictionary_at(data, 0))
+		"godot_vibe_os:frames_done":
+			var done_id := str(data[0]) if data.size() > 0 else ""
+			if done_id == _frames_id and _frames_state == "pending":
+				var summary := _dictionary_at(data, 1)
+				_frames_dropped += maxi(0, int(summary.get("dropped", 0)))
+				_frames_state = "complete"
+		"godot_vibe_os:frames_error":
+			var frames_error_id := str(data[0]) if data.size() > 0 else ""
+			if frames_error_id == _frames_id:
+				_frames_state = "error"
+				_frames_error = _json_safe_text(str(data[1]) if data.size() > 1 else "Runtime frame capture failed.", 500)
 		_:
 			return false
 	return true
@@ -144,6 +169,107 @@ func snapshot(params: Dictionary) -> Dictionary:
 	}
 
 
+func capture_frames(params: Dictionary) -> Dictionary:
+	var capture_id := str(params.get("captureId", ""))
+	if capture_id.is_empty():
+		return _begin_frame_capture(params)
+	if capture_id != _frames_id or _frames_id.is_empty():
+		return _frame_capture_page(params, capture_id, "error", "That frame capture sequence is no longer active.")
+	return _frame_capture_page(params, _frames_id, _frames_state, _frames_error)
+
+
+func _begin_frame_capture(params: Dictionary) -> Dictionary:
+	_frames_requested = {
+		"frames": clampi(int(params.get("frames", 8)), MIN_SEQUENCE_FRAMES, MAX_SEQUENCE_FRAMES),
+		"intervalMs": clampi(int(params.get("intervalMs", 400)), MIN_SEQUENCE_INTERVAL_MS, MAX_SEQUENCE_INTERVAL_MS),
+		"width": clampi(int(params.get("width", 480)), MIN_SEQUENCE_WIDTH, CAPTURE_WIDTH),
+		"format": "png" if str(params.get("format", "jpg")) == "png" else "jpg",
+		"quality": clampi(int(params.get("quality", 70)), 1, 100),
+	}
+	_frames = []
+	_frames_dropped = 0
+	_frames_error = null
+	var session := get_session(_session_id) if _session_id >= 0 else null
+	if not _runtime_connected or session == null or not session.is_active():
+		_frames_id = ""
+		_frames_state = "not_running"
+		return _frame_capture_page({}, "", "not_running", "The runtime probe is not connected.")
+	_frames_id = "%s-frames-%d" % [_run_id if not _run_id.is_empty() else "no-run", Time.get_ticks_usec()]
+	_frames_state = "pending"
+	session.send_message("%s:capture_frames" % MESSAGE_PREFIX, [
+		_frames_id,
+		int(_frames_requested.frames),
+		int(_frames_requested.intervalMs),
+		int(_frames_requested.width),
+		str(_frames_requested.format),
+		int(_frames_requested.quality),
+	])
+	return _frame_capture_page(params, _frames_id, _frames_state, _frames_error)
+
+
+func _frame_capture_page(params: Dictionary, capture_id: String, state: String, error) -> Dictionary:
+	var since := maxi(0, int(params.get("sinceIndex", 0)))
+	var max_frames := clampi(int(params.get("maxFrames", MAX_SEQUENCE_PAGE)), 1, MAX_SEQUENCE_PAGE)
+	var selected: Array[Dictionary] = []
+	var cursor := 0
+	if capture_id == _frames_id and not _frames_id.is_empty():
+		for frame in _frames:
+			cursor = maxi(cursor, int(frame.index))
+			if int(frame.index) > since and selected.size() < max_frames:
+				selected.append(frame)
+	return {
+		"captureId": capture_id,
+		"state": state,
+		"runId": _run_id,
+		"requested": _frames_requested.duplicate(),
+		"capturedCount": _frames.size() if capture_id == _frames_id and not _frames_id.is_empty() else 0,
+		"frameCursor": cursor,
+		"frames": selected,
+		"droppedFrames": _frames_dropped,
+		"error": error,
+	}
+
+
+func _accept_frame(payload: Dictionary) -> void:
+	if _frames_id.is_empty() or str(payload.get("id", "")) != _frames_id or _frames_state != "pending":
+		return
+	if _frames.size() >= MAX_SEQUENCE_FRAMES:
+		_frames_dropped += 1
+		return
+	var index := int(payload.get("index", 0))
+	var base64 := str(payload.get("base64", ""))
+	var width := int(payload.get("width", 0))
+	var height := int(payload.get("height", 0))
+	var bytes := int(payload.get("bytes", 0))
+	var frame_hash := str(payload.get("hash", ""))
+	var mime := str(payload.get("mimeType", ""))
+	if (
+		index <= 0
+		or base64.is_empty()
+		or width <= 0
+		or height <= 0
+		or bytes <= 0
+		or frame_hash.length() != 16
+		or not frame_hash.is_valid_hex_number()
+		or (mime != "image/jpeg" and mime != "image/png")
+	):
+		_frames_dropped += 1
+		return
+	_frames.append({
+		"index": index,
+		"tMs": maxi(0, int(payload.get("tMs", 0))),
+		"deltaMs": maxi(0, int(payload.get("deltaMs", 0))),
+		"frameTimeMs": maxf(0.0, _finite_or_zero(payload.get("frameTimeMs"))),
+		"captureCostMs": maxf(0.0, _finite_or_zero(payload.get("captureCostMs"))),
+		"mimeType": mime,
+		"base64": base64,
+		"width": width,
+		"height": height,
+		"bytes": bytes,
+		"hash": frame_hash.to_lower(),
+	})
+
+
 func is_run_active(run_id: String) -> bool:
 	if run_id.is_empty() or run_id != _run_id or _stopped_at != null:
 		return false
@@ -165,6 +291,9 @@ func _session_stopped(session_id: int) -> void:
 	if _capture_pending:
 		_capture_pending = false
 		_capture_error = "The game stopped before the runtime screenshot completed."
+	if _frames_state == "pending":
+		_frames_state = "error"
+		_frames_error = "The game stopped before the frame sequence completed."
 
 
 func _session_breaked(_can_debug: bool, session_id: int) -> void:
@@ -190,6 +319,11 @@ func _begin_session(session_id: int) -> void:
 	_screenshot = null
 	_capture_pending = false
 	_capture_error = null
+	_frames_id = ""
+	_frames_state = "complete"
+	_frames = []
+	_frames_dropped = 0
+	_frames_error = null
 
 
 func _request_screenshot() -> void:
@@ -292,6 +426,13 @@ func _finite_or_null(value: Variant) -> Variant:
 		return null
 	var number := float(value)
 	return number if is_finite(number) else null
+
+
+func _finite_or_zero(value: Variant) -> float:
+	if typeof(value) != TYPE_INT and typeof(value) != TYPE_FLOAT:
+		return 0.0
+	var number := float(value)
+	return number if is_finite(number) else 0.0
 
 
 func _json_safe_text(value: String, max_chars: int) -> String:

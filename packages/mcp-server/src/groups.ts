@@ -9,7 +9,7 @@ export const TOOL_GROUPS: ToolGroupMeta[] = [
 const GROUPS: Record<string, string> = {
   godot_read_script: "scripting", godot_get_script_sha: "scripting", godot_find_in_file: "scripting",
   godot_create_script: "scripting", godot_apply_text_edits: "scripting", godot_reflect: "reflection",
-  godot_debug_run: "runtime", godot_test_run: "runtime", godot_run_project: "runtime", godot_stop_project: "runtime", godot_get_play_status: "runtime",
+  godot_debug_run: "runtime", godot_capture_frames: "runtime", godot_test_run: "runtime", godot_run_project: "runtime", godot_stop_project: "runtime", godot_get_play_status: "runtime",
 };
 export function groupOf(name: string): string { return GROUPS[name] ?? "core"; }
 export function defaultActiveGroups(): Set<string> { return new Set(TOOL_GROUPS.filter((group) => group.defaultActive).map((group) => group.name)); }

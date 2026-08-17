@@ -73,6 +73,8 @@ func dispatch(method: String, params: Dictionary) -> Dictionary:
 			return _play_status()
 		"debug.snapshot":
 			return _debug_snapshot(params)
+		"debug.captureFrames":
+			return _debug_capture_frames(params)
 		_:
 			return _fail("METHOD_NOT_FOUND", "Unknown bridge method '%s'." % method)
 
@@ -619,6 +621,14 @@ func _debug_snapshot(params: Dictionary) -> Dictionary:
 	var result: Dictionary = _debugger.snapshot(params)
 	result["playing"] = _editor.is_playing_scene()
 	return _ok(result)
+
+
+func _debug_capture_frames(params: Dictionary) -> Dictionary:
+	if _debugger == null or not _debugger.has_method("capture_frames"):
+		return _fail("FEATURE_UNAVAILABLE", "The runtime debugger bridge is unavailable.")
+	if not _editor.is_playing_scene() and _string_param(params, "captureId", "").is_empty():
+		return _fail("PLAY_MODE_REQUIRED", "No Godot game is running, so there are no frames to capture.")
+	return _ok(_debugger.capture_frames(params))
 
 
 func _play_status_payload() -> Dictionary:

@@ -14,6 +14,7 @@ export function createMockBridgeClient(): BridgeClient {
   let sampleCursor = 0;
   let screenshotId = "";
   let debugScreenshot: ReturnType<typeof runtimeScreenshot> | null = null;
+  let frameCapture: { captureId: string; requested: MockFrameRequest; frames: ReturnType<typeof runtimeFrame>[] } | null = null;
   const responders: Record<BridgeMethod, (params: Record<string, unknown>) => unknown> = {
     "system.health": () => ({ status: "ok", godotVersion: "4.7.1.mock", projectPath: "/mock/godot", uptimeMs: 12_345, isPlaying: playing, filesystemScanning: false }),
     "system.summary": () => ({ engine: "godot", godotVersion: "4.7.1.mock", projectName: "MockGame", projectPath: "/mock/godot", platform: "macOS", openSceneCount: 1, editedScene: "res://scenes/main.tscn", isPlaying: playing, filesystem: { scanning: false, importing: false, progress: 1, indexedFiles: 37 } }),
@@ -103,6 +104,32 @@ export function createMockBridgeClient(): BridgeClient {
         captureError: null,
       };
     },
+    "debug.captureFrames": (params) => {
+      const requestedId = typeof params.captureId === "string" ? params.captureId : "";
+      if (requestedId.length === 0) {
+        const requested: MockFrameRequest = {
+          frames: clampInt(params.frames, 2, 16, 8),
+          intervalMs: clampInt(params.intervalMs, 100, 2_000, 400),
+          width: clampInt(params.width, 160, 1_280, 480),
+          format: params.format === "png" ? "png" : "jpg",
+          quality: clampInt(params.quality, 1, 100, 70),
+        };
+        if (!playing) {
+          frameCapture = null;
+          return framePage(null, "not_running", requested, params, "The runtime probe is not connected.");
+        }
+        frameCapture = {
+          captureId: `mock-frames-${runNumber || 1}`,
+          requested,
+          frames: Array.from({ length: requested.frames }, (_, index) => runtimeFrame(index + 1, requested)),
+        };
+        return framePage(frameCapture, "complete", requested, params, null);
+      }
+      if (!frameCapture || frameCapture.captureId !== requestedId) {
+        return framePage(null, "error", frameCapture?.requested ?? MOCK_FRAME_REQUEST, params, "That frame capture sequence is no longer active.");
+      }
+      return framePage(frameCapture, "complete", frameCapture.requested, params, null);
+    },
   };
   return {
     source: "mock",
@@ -115,6 +142,59 @@ export function createMockBridgeClient(): BridgeClient {
     },
     async isConnected() { return true; },
     async health() { return responders["system.health"]({}) as never; },
+  };
+}
+
+interface MockFrameRequest { frames: number; intervalMs: number; width: number; format: "jpg" | "png"; quality: number }
+const MOCK_FRAME_REQUEST: MockFrameRequest = { frames: 8, intervalMs: 400, width: 480, format: "jpg", quality: 70 };
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
+/**
+ * Mock frames alternate between two fully-opposed average hashes every two frames, so the
+ * "changed" dedup policy has a deterministic sequence to reduce.
+ */
+function runtimeFrame(index: number, requested: MockFrameRequest) {
+  const alternating = Math.floor((index - 1) / 2) % 2 === 0;
+  const image = makeMockPng(requested.width, Math.round(requested.width * 0.5625), alternating ? [46, 160, 109] : [176, 96, 42], "MOCK GAME FRAME");
+  return {
+    index,
+    tMs: (index - 1) * requested.intervalMs,
+    deltaMs: index === 1 ? 0 : requested.intervalMs,
+    frameTimeMs: 8.25,
+    captureCostMs: 3.5,
+    // The mock PNG generator produces real PNG bytes whatever format the caller asked for.
+    mimeType: "image/png" as const,
+    base64: image.pngBase64,
+    width: image.width,
+    height: image.height,
+    bytes: Buffer.byteLength(image.pngBase64, "base64"),
+    hash: alternating ? "0000000000000000" : "ffffffffffffffff",
+  };
+}
+
+function framePage(
+  capture: { captureId: string; frames: ReturnType<typeof runtimeFrame>[] } | null,
+  state: "pending" | "complete" | "error" | "not_running",
+  requested: MockFrameRequest,
+  params: Record<string, unknown>,
+  error: string | null,
+) {
+  const frames = capture?.frames ?? [];
+  const since = typeof params.sinceIndex === "number" ? params.sinceIndex : 0;
+  const maxFrames = clampInt(params.maxFrames, 1, 4, 4);
+  return {
+    captureId: capture?.captureId ?? "",
+    state,
+    runId: capture ? capture.captureId : "",
+    requested,
+    capturedCount: frames.length,
+    frameCursor: frames.at(-1)?.index ?? 0,
+    frames: frames.filter((frame) => frame.index > since).slice(0, maxFrames),
+    droppedFrames: 0,
+    error,
   };
 }
 

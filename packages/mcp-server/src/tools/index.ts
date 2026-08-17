@@ -15,6 +15,7 @@ import {
   godotQueryProjectBrain,
 } from "./godotComposite.js";
 import { godotDebugRun } from "./godotDebug.js";
+import { godotCaptureFrames } from "./godotCaptureFrames.js";
 import { godotTestRun } from "./godotTests.js";
 
 export const allTools: AnyToolDef[] = [
@@ -48,6 +49,7 @@ export const allTools: AnyToolDef[] = [
   godotCreateScript,
   godotApplyTextEdits,
   godotDebugRun,
+  godotCaptureFrames,
   godotRunProject,
   godotStopProject,
   godotGetPlayStatus,
@@ -55,6 +57,7 @@ export const allTools: AnyToolDef[] = [
 
 export {
   godotApplyTextEdits, godotBatch, godotCapture2DView, godotCapture3DView,
+  godotCaptureFrames,
   godotCreateNode, godotCreateScript, godotDeleteNode, godotDiagnoseConnection,
   godotDebugRun,
   godotFindDependencies, godotFindInFile, godotGenerateProjectBrain,

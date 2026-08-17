@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { TestRunResult } from "@gvibe/core";
 import { resolveProjectPath } from "@gvibe/safety";
 import type { ToolDef } from "../registry.js";
+import { reportProgress } from "../progress.js";
 import { err, ok } from "./_helpers.js";
 
 const MAX_CAPTURED_BYTES = 96 * 1024;
@@ -39,8 +40,10 @@ export const godotTestRun: ToolDef<typeof TestRunShape, TestRunResult> = {
       const timeoutMs = args.timeoutMs ?? 120_000;
       const commandArgs = ["--headless", "--path", projectPath, "--script", runner.absolute];
       const startedAt = Date.now();
+      reportProgress(ctx, 0, `Running ${runnerPath} in a bounded headless Godot process…`, 1);
       const processResult = await runBounded(binary, commandArgs, projectPath, timeoutMs);
       const durationMs = Date.now() - startedAt;
+      reportProgress(ctx, 1, "Test runner exited; summarizing its observed result…", 1);
       const verdict = processResult.timedOut
         ? "timeout" as const
         : processResult.exitCode === 0

@@ -23,6 +23,7 @@ export const BRIDGE_METHODS = {
   playStop: "play.stop",
   playStatus: "play.status",
   debugSnapshot: "debug.snapshot",
+  debugCaptureFrames: "debug.captureFrames",
 } as const;
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[keyof typeof BRIDGE_METHODS];

@@ -23,7 +23,7 @@ node /absolute/path/to/wazzicode-godot/apps/cli/bin/gvibe doctor \
 
 ## What the agent can do
 
-The 31 `godot_*` tools are deliberately smaller and more Godot-specific than the source product's tool catalog:
+The 34 `godot_*` tools are deliberately smaller and more Godot-specific than the source product's tool catalog:
 
 - Orient once with live project, scenes, selection, import, play, git, and relevant project-map state.
 - Inspect bounded Node trees and exact NodePaths; create, delete, reparent, instantiate, set properties, open, and save through editor APIs and UndoRedo.
@@ -63,7 +63,7 @@ Project state lives under `.godot-vibe/`; Godot's per-machine discovery remains 
 godot/addons/godot_vibe_os/  Godot 4 editor addon and authenticated bridge
 packages/core/               protocol, schemas, errors, envelopes
 packages/bridge-client/      discovery-aware authenticated HTTP client
-packages/mcp-server/         31 tools, prompts, resources, mock bridge
+packages/mcp-server/         34 tools, prompts, resources, mock bridge
 packages/project-brain/      Godot scanner, parser, entity graph, queries
 packages/safety/             per-target gates, snapshots, action log
 apps/cli/                    gvibe setup and diagnostics

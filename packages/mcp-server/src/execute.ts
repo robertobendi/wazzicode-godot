@@ -55,18 +55,26 @@ async function runGatedWrite(
 ): Promise<ToolEnvelope<unknown>> {
   const config = await loadConfig(ctx.projectPath);
   const decision = gateTool(config, tool.name, tool.writeTarget);
+  let confirmedByOwner = false;
   if (!decision.allowed) {
-    const blocked = err(decision.errorCode ?? "SAFETY_MODE_BLOCKED", decision.reason, {
-      source: ctx.bridge.source,
-    });
-    await safeAppend(ctx.projectPath, {
-      timestamp: Date.now(),
-      tool: tool.name,
-      args: parsed,
-      result: "blocked",
-      errorCode: blocked.error.code,
-    });
-    return blocked;
+    // "confirm" is the one mode whose refusal is about a missing approval signal rather than a
+    // policy decision, so an accepted elicitation satisfies it. Every other mode stays refused.
+    confirmedByOwner = config.safetyMode === "confirm" && ctx.confirmWrite !== undefined
+      ? await ctx.confirmWrite({ message: confirmMessage(tool, parsed) })
+      : false;
+    if (!confirmedByOwner) {
+      const blocked = err(decision.errorCode ?? "SAFETY_MODE_BLOCKED", decision.reason, {
+        source: ctx.bridge.source,
+      });
+      await safeAppend(ctx.projectPath, {
+        timestamp: Date.now(),
+        tool: tool.name,
+        args: parsed,
+        result: "blocked",
+        errorCode: blocked.error.code,
+      });
+      return blocked;
+    }
   }
 
   // Disk-backed writes receive a recoverable file snapshot in addition to editor UndoRedo.
@@ -96,6 +104,11 @@ async function runGatedWrite(
   }
 
   const env = await tool.run(parsed as never, ctx);
+  const summary =
+    env.ok && typeof (env.data as { summary?: unknown })?.summary === "string"
+      ? (env.data as { summary: string }).summary
+      : undefined;
+  const approval = confirmedByOwner ? "Approved interactively in confirm mode." : undefined;
   await safeAppend(ctx.projectPath, {
     timestamp: Date.now(),
     tool: tool.name,
@@ -103,12 +116,16 @@ async function runGatedWrite(
     result: env.ok ? "ok" : "error",
     errorCode: env.ok ? undefined : env.error.code,
     snapshotId,
-    notes:
-      env.ok && typeof (env.data as { summary?: unknown })?.summary === "string"
-        ? (env.data as { summary: string }).summary
-        : undefined,
+    notes: [approval, summary].filter(Boolean).join(" ") || undefined,
   });
   return env;
+}
+
+function confirmMessage(tool: AnyToolDef, args: Record<string, unknown>): string {
+  const target = [args.path, args.nodePath, args.scenePath, args.resourcePath]
+    .find((value): value is string => typeof value === "string" && value.length > 0);
+  const subject = tool.writeTarget ? `${tool.writeTarget} state` : "project state";
+  return `Godot Vibe OS is in confirm mode. Allow '${tool.name}' to change ${subject}${target ? ` for ${target}` : ""}?`;
 }
 
 async function snapshotPathFor(

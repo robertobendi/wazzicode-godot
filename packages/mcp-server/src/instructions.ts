@@ -1,24 +1,34 @@
-export const SERVER_INSTRUCTIONS = `Godot Vibe OS is a Godot-native operating layer. Its godot_* tools read and edit the OPEN Godot editor over an authenticated localhost bridge. Work from live scenes, NodePaths, ClassDB, project resources, and source-backed project knowledge.
+/**
+ * Claude Code truncates MCP server instructions at 2KB, so the primer stays under
+ * MAX_INSTRUCTION_BYTES including the generated project map and points at resources
+ * and tool descriptions for everything else.
+ */
+export const MAX_INSTRUCTION_BYTES = 2_000;
 
-1. Begin with godot_orient({task:"the user's request"}). It returns edited/open scenes, selection, import state, play state, git, and relevant project-map matches in one call.
-2. Never guess Godot APIs. Call godot_reflect with an exact className (or search query) before writing unfamiliar GDScript APIs.
-3. When the user says “this” or “selected”, call godot_inspect_selected first. Use exact NodePaths relative to the edited root.
-4. Inspect, edit, then verify. After text changes call godot_refresh_filesystem and godot_verify. godot_verify is an honest import + GDScript syntax gate, not a test suite. When res://tests/run_tests.gd exists, call godot_test_run and report its separate observed result.
-5. Read before editing. godot_read_script returns sha256; pass it to godot_apply_text_edits so concurrent changes cannot be overwritten.
-6. For runtime bugs, use godot_debug_run instead of manually chaining run/status/capture. It launches or safely attaches, observes bounded logs and performance, returns one game screenshot, and only stops runs it started.
+export const SERVER_INSTRUCTIONS = `Godot Vibe OS drives the OPEN Godot editor over an authenticated localhost bridge. Work from live scenes, NodePaths, ClassDB, and the source-backed project map.
 
-SCENES: use godot_get_scene_tree, godot_open_scene, godot_create_node, godot_set_property, godot_reparent_node, godot_instantiate_scene, godot_delete_node, then godot_save_scene. Editor scene mutations use Godot UndoRedo and persistent nodes receive the correct owner. Bundle known multi-step plans with godot_batch; each operation remains safety-gated and logged.
+1. Start with godot_orient({task:"the user's request"}): scenes, selection, import, play, git, and project-map matches in one call.
+2. Never guess Godot APIs. Call godot_reflect with an exact className before writing unfamiliar ones.
+3. Inspect before you mutate. Scene changes go through godot_get_scene_tree, godot_open_scene, godot_create_node, godot_set_property, godot_reparent_node, godot_instantiate_scene, godot_delete_node, godot_save_scene, which use editor UndoRedo. Do not hand-edit .tscn/.tres.
+4. Read before editing text: godot_read_script returns sha256; pass it to godot_apply_text_edits.
+5. Verify, then report the exact verdict. godot_verify is an import + GDScript syntax gate, not a test suite; tests stay not_configured unless godot_test_run really ran res://tests/run_tests.gd.
+6. For runtime bugs call godot_debug_run; for how the running game moves over time call godot_capture_frames. Editor viewports come from godot_capture_2d_view/godot_capture_3d_view.
 
-RESOURCES: use godot_find_dependencies before moving or deleting resources. Use res:// paths. Do not edit .tscn/.tres by hand when a dedicated live editor tool can make the change safely.
-
-VISUALS: godot_capture_2d_view and godot_capture_3d_view return actual editor viewport images so inspect the result instead of inferring appearance.
-
-DEBUGGING: godot_debug_run returns deterministic, grouped errors and warnings plus FPS, frame/physics time, memory, node/orphan counts, draw calls, lifecycle, runtime identity, and optional image evidence. A clean verdict means no issues were observed in that bounded window; it is not proof that none exist.
-
-TESTING: godot_test_run executes a contained project-owned GDScript runner in a separate bounded headless process. Treat only exit code 0 as a passing test run; distinguish failures and timeouts from godot_verify import/syntax results.
-
-PROJECT MAP: .godot-vibe/brain stores a bounded index of project settings, addons, scenes, resources, GDScript classes/signals/exports/functions, shaders, and relationships. Use godot_query_project_brain for focused architecture/ownership/dependency questions.
-
-CONNECTION: godot_diagnose_connection checks addon install/enablement, token-authenticated discovery, protocol, health, RPC, and project identity. GODOT_RELOADING is retryable. GODOT_NOT_CONNECTED means the expected project is not open with the addon enabled.
+ERRORS: GODOT_NOT_CONNECTED means the project is not open with the addon enabled. GODOT_RELOADING is retryable. godot_diagnose_connection explains both.
 
 Resources: godot://project-brain, godot://conventions, godot://action-log, godot://scene-tree.`;
+
+/**
+ * Join the static primer with the generated project map, dropping map lines that would push
+ * the delivered instructions past the client's truncation limit.
+ */
+export function composeInstructions(projectKnowledgePrimer?: string): string {
+  if (!projectKnowledgePrimer) return SERVER_INSTRUCTIONS;
+  const lines = projectKnowledgePrimer.split("\n");
+  while (lines.length > 0) {
+    const candidate = `${SERVER_INSTRUCTIONS}\n\n${lines.join("\n")}`;
+    if (Buffer.byteLength(candidate, "utf8") <= MAX_INSTRUCTION_BYTES) return candidate;
+    lines.pop();
+  }
+  return SERVER_INSTRUCTIONS;
+}

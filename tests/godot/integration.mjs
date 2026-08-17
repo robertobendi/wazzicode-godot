@@ -29,6 +29,7 @@ let portBlocker;
 let blockedPort;
 let captureOutsideDirectory = "";
 let captureSymlinkCreated = false;
+let frameEvidence = "no frame evidence";
 const capturePaths = [];
 
 try {
@@ -253,6 +254,7 @@ try {
   });
   assert.equal(debugBaseline.runId, "");
   assert.equal(debugBaseline.runtimeConnected, false);
+  await rpcError("debug.captureFrames", { frames: 4, intervalMs: 100 }, "PLAY_MODE_REQUIRED");
   const debugRun = await rpc("play.run", { mode: "current" });
   assert.equal(debugRun.started, true);
   let debugSnapshot;
@@ -297,6 +299,59 @@ try {
   } else {
     assert.match(debugCapture.captureError, /display server|viewport|stopped/i);
   }
+
+  const frameRequest = await rpc("debug.captureFrames", {
+    frames: 4,
+    intervalMs: 100,
+    width: 240,
+    format: "jpg",
+    quality: 60,
+    maxFrames: 4,
+  });
+  assert.deepEqual(frameRequest.requested, { frames: 4, intervalMs: 100, width: 240, format: "jpg", quality: 60 });
+  assert.ok(
+    ["pending", "complete", "error", "not_running"].includes(frameRequest.state),
+    `unexpected frame capture state '${frameRequest.state}'`,
+  );
+  const collectedFrames = [...frameRequest.frames];
+  let frameCapture = frameRequest;
+  if (frameRequest.state === "pending") {
+    assert.ok(frameRequest.captureId.length > 0, "a started frame sequence must be addressable");
+    await waitUntil(async () => {
+      frameCapture = await rpc("debug.captureFrames", {
+        captureId: frameRequest.captureId,
+        sinceIndex: collectedFrames.length > 0 ? collectedFrames[collectedFrames.length - 1].index : 0,
+        maxFrames: 4,
+      });
+      collectedFrames.push(...frameCapture.frames);
+      return frameCapture.state !== "pending" && collectedFrames.length >= frameCapture.capturedCount;
+    }, 15_000, "runtime frame sequence");
+  }
+  if (collectedFrames.length > 0) {
+    frameEvidence = `${collectedFrames.length} rendered game frames`;
+    assert.deepEqual(collectedFrames.map((frame) => frame.index), collectedFrames.map((_, index) => index + 1));
+    let previousOffset = -1;
+    for (const frame of collectedFrames) {
+      assert.match(frame.hash, /^[0-9a-f]{16}$/, "each frame must carry an average hash for dedup");
+      assert.equal(frame.mimeType, "image/jpeg");
+      assert.ok(frame.width > 0 && frame.width <= 240, `frame width ${frame.width} must respect the request`);
+      assert.ok(frame.height > 0);
+      assert.ok(frame.tMs > previousOffset, "frame offsets must increase across the sequence");
+      previousOffset = frame.tMs;
+      const bytes = Buffer.from(frame.base64, "base64");
+      assert.equal(bytes.length, frame.bytes);
+      assert.deepEqual([...bytes.subarray(0, 2)], [0xff, 0xd8], "jpg frames must start with a JPEG SOI marker");
+    }
+  } else {
+    // Headless Godot cannot render, so the honest refusal is the verified behaviour here.
+    frameEvidence = `honest '${frameCapture.error}' refusal`;
+    assert.ok(["error", "not_running"].includes(frameCapture.state), `expected an honest refusal, got '${frameCapture.state}'`);
+    assert.match(frameCapture.error, /display server|viewport|stopped|not connected|in progress/i);
+  }
+  const staleFramePoll = await rpc("debug.captureFrames", { captureId: "no-such-capture" });
+  assert.equal(staleFramePoll.state, "error");
+  assert.equal(staleFramePoll.frames.length, 0);
+
   const debugStopped = await rpc("play.stop");
   assert.equal(debugStopped.stopped, true);
   let retainedDebug;
@@ -388,7 +443,7 @@ try {
   await testOwnershipSafeCleanup();
   await testPrimaryDiscoveryRecovery();
   await testRandomTokenFailure();
-  console.log("Godot addon integration passed: auth, 22 RPC methods, inherited imports, undoable edits, runtime debug evidence, save, capture containment, play, and multi-editor discovery lifecycle.");
+  console.log(`Godot addon integration passed: auth, 23 RPC methods, inherited imports, undoable edits, runtime debug evidence, game frame capture (${frameEvidence}), save, capture containment, play, and multi-editor discovery lifecycle.`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (editorOutput) process.stderr.write(`\nGodot output (tail):\n${editorOutput.slice(-8000)}\n`);

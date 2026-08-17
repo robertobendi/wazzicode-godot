@@ -151,6 +151,17 @@ const validBridgeResults = {
     droppedEvents: 0, droppedSamples: 0, runtime: { scenePath: "res://scenes/main.tscn", rootName: "Main", rootType: "Node2D", nodeCount: 10, pid: 123 },
     screenshotId: "", screenshot: null, capturePending: false, captureError: null,
   },
+  "debug.captureFrames": {
+    captureId: "run-1-frames-1", state: "complete", runId: "run-1",
+    requested: { frames: 2, intervalMs: 400, width: 480, format: "jpg", quality: 70 },
+    capturedCount: 1, frameCursor: 1,
+    frames: [{
+      index: 1, tMs: 0, deltaMs: 0, frameTimeMs: 8.25, captureCostMs: 3.5,
+      mimeType: "image/jpeg", base64: "/9j/4AAQ", width: 480, height: 270, bytes: 6,
+      hash: "0f1e2d3c4b5a6978",
+    }],
+    droppedFrames: 0, error: null,
+  },
 } satisfies Record<BridgeMethod, unknown>;
 
 describe("bridge discovery", () => {

@@ -293,6 +293,67 @@ export const DebugSnapshotResultSchema = z.object({
 });
 export type DebugSnapshotResult = z.infer<typeof DebugSnapshotResultSchema>;
 
+export const CAPTURE_FRAME_LIMITS = {
+  frames: { min: 2, max: 16, default: 8 },
+  /** Godot's own viewport-capture cadence guidance: get_image() forces a GPU flush (#75877). */
+  intervalMs: { min: 100, max: 2_000, default: 400 },
+  width: { min: 160, max: 1_280, default: 480 },
+  quality: { min: 1, max: 100, default: 70 },
+  /** Frames returned per debug.captureFrames page, so one bridge response stays small. */
+  page: { min: 1, max: 4, default: 4 },
+} as const;
+
+export const DebugCaptureFramesParamsSchema = z.object({
+  captureId: z.string().optional().describe("Poll an in-flight sequence. Omit to start a new one."),
+  frames: z.number().int().min(CAPTURE_FRAME_LIMITS.frames.min).max(CAPTURE_FRAME_LIMITS.frames.max).optional(),
+  intervalMs: z.number().int().min(CAPTURE_FRAME_LIMITS.intervalMs.min).max(CAPTURE_FRAME_LIMITS.intervalMs.max).optional(),
+  width: z.number().int().min(CAPTURE_FRAME_LIMITS.width.min).max(CAPTURE_FRAME_LIMITS.width.max).optional(),
+  format: z.enum(["jpg", "png"]).optional(),
+  quality: z.number().int().min(CAPTURE_FRAME_LIMITS.quality.min).max(CAPTURE_FRAME_LIMITS.quality.max).optional(),
+  sinceIndex: z.number().int().nonnegative().optional(),
+  maxFrames: z.number().int().min(CAPTURE_FRAME_LIMITS.page.min).max(CAPTURE_FRAME_LIMITS.page.max).optional(),
+});
+export type DebugCaptureFramesParams = z.infer<typeof DebugCaptureFramesParamsSchema>;
+
+export const DebugFrameSchema = z.object({
+  index: z.number().int().positive(),
+  /** Milliseconds after the first captured frame of this sequence. */
+  tMs: z.number().int().nonnegative(),
+  /** Milliseconds since the previous captured frame; 0 for the first. */
+  deltaMs: z.number().int().nonnegative(),
+  /** Godot's reported process time for the frame this image came from. */
+  frameTimeMs: z.number().finite().nonnegative(),
+  /** Wall time the running game spent inside get_image/resize/encode for this frame. */
+  captureCostMs: z.number().finite().nonnegative(),
+  mimeType: z.enum(["image/jpeg", "image/png"]),
+  base64: z.string().min(1),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  bytes: z.number().int().positive(),
+  /** 8x8 grayscale average hash, 64 bits as 16 lowercase hex characters. */
+  hash: z.string().regex(/^[0-9a-f]{16}$/),
+});
+export type DebugFrame = z.infer<typeof DebugFrameSchema>;
+
+export const DebugCaptureFramesResultSchema = z.object({
+  captureId: z.string(),
+  state: z.enum(["pending", "complete", "error", "not_running"]),
+  runId: z.string(),
+  requested: z.object({
+    frames: z.number().int().positive(),
+    intervalMs: z.number().int().positive(),
+    width: z.number().int().positive(),
+    format: z.enum(["jpg", "png"]),
+    quality: z.number().int().positive(),
+  }),
+  capturedCount: z.number().int().nonnegative(),
+  frameCursor: z.number().int().nonnegative(),
+  frames: z.array(DebugFrameSchema),
+  droppedFrames: z.number().int().nonnegative(),
+  error: z.string().nullable(),
+});
+export type DebugCaptureFramesResult = z.infer<typeof DebugCaptureFramesResultSchema>;
+
 export const BridgeResultSchemas = {
   [BRIDGE_METHODS.systemHealth]: SystemHealthResultSchema,
   [BRIDGE_METHODS.systemSummary]: ProjectSummarySchema,
@@ -316,6 +377,7 @@ export const BridgeResultSchemas = {
   [BRIDGE_METHODS.playStop]: PlayStopResultSchema,
   [BRIDGE_METHODS.playStatus]: PlayStatusSchema,
   [BRIDGE_METHODS.debugSnapshot]: DebugSnapshotResultSchema,
+  [BRIDGE_METHODS.debugCaptureFrames]: DebugCaptureFramesResultSchema,
 } satisfies Record<BridgeMethod, z.ZodTypeAny>;
 
 export const ScriptReadResultSchema = z.object({

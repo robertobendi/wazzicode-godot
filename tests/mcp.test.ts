@@ -101,16 +101,17 @@ const EXPECTED_TOOLS = [
   "godot_create_script",
   "godot_apply_text_edits",
   "godot_debug_run",
+  "godot_capture_frames",
   "godot_run_project",
   "godot_stop_project",
   "godot_get_play_status",
 ] as const;
 
 describe("Godot MCP registry", () => {
-  it("registers exactly 33 focused, uniquely named Godot tools", () => {
+  it("registers exactly 34 focused, uniquely named Godot tools", () => {
     const names = allTools.map((tool) => tool.name);
     expect(names).toEqual(EXPECTED_TOOLS);
-    expect(new Set(names).size).toBe(33);
+    expect(new Set(names).size).toBe(34);
     expect(names.every((name) => name.startsWith("godot_"))).toBe(true);
     expect(names.some((name) => /unity|prefab|gameobject/i.test(name))).toBe(false);
   });
@@ -134,6 +135,8 @@ describe("Godot MCP registry", () => {
   });
 
   it("teaches Godot-specific orientation, reflection, editing, and verification", () => {
+    // Claude Code truncates server instructions at 2KB, primer included.
+    expect(Buffer.byteLength(SERVER_INSTRUCTIONS, "utf8")).toBeLessThanOrEqual(2_000);
     expect(SERVER_INSTRUCTIONS).toContain("godot_orient");
     expect(SERVER_INSTRUCTIONS).toContain("godot_reflect");
     expect(SERVER_INSTRUCTIONS).toContain("godot_test_run");

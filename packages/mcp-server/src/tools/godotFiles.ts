@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { ScriptEditResult, ScriptFindResult, ScriptReadResult, ScriptShaResult, VerifyResult } from "@gvibe/core";
 import { resolveProjectPath } from "@gvibe/safety";
 import type { ToolDef } from "../registry.js";
+import { reportProgress } from "../progress.js";
 import { err, ok, timed } from "./_helpers.js";
 
 const TEXT_EXTENSIONS = new Set([".gd", ".gdshader", ".tscn", ".tres", ".cfg", ".json", ".md", ".txt", ".cs"]);
@@ -147,14 +148,17 @@ export const godotVerify: ToolDef<typeof VerifyShape, VerifyResult> = {
     const timeout = args.timeoutMs ?? 120_000;
     const projectPath = path.resolve(ctx.projectPath);
     const { result, durationMs } = await timed(async () => {
+      reportProgress(ctx, 0, "Importing the project headlessly…");
       const imported = await run(binary, ["--headless", "--path", projectPath, "--import", "--quit"], projectPath, timeout);
       const scripts = await listFiles(projectPath, ".gd", { followSymbolicLinks: true });
       const csharpScripts = await listFiles(projectPath, ".cs", { followSymbolicLinks: true });
       const csharpProjects = await listFiles(projectPath, ".csproj", { followSymbolicLinks: true });
       const failures: Array<{ path: string; output: string }> = [];
-      for (const script of scripts) {
+      reportProgress(ctx, 1, `Import finished; checking ${scripts.length} GDScript file(s)…`, scripts.length + 1);
+      for (const [index, script] of scripts.entries()) {
         const checked = await run(binary, ["--headless", "--path", projectPath, "--script", script, "--check-only"], projectPath, timeout);
         if (checked.exitCode !== 0) failures.push({ path: toResPath(projectPath, script), output: checked.output.slice(-8_000) });
+        reportProgress(ctx, index + 2, `Checked script ${index + 1}/${scripts.length}`, scripts.length + 1);
       }
       const importOk = imported.exitCode === 0 && !/SCRIPT ERROR|Parse Error|ERROR:/i.test(imported.output);
       const warnings: string[] = [];

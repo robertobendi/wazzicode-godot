@@ -10,6 +10,7 @@ import type {
   ToolEnvelope,
 } from "@gvibe/core";
 import type { ToolDef, ToolContext } from "../registry.js";
+import { reportProgress } from "../progress.js";
 import { BRIDGE_METHODS, bridgeCall, ok } from "./_helpers.js";
 
 const DebugRunShape = {
@@ -24,6 +25,8 @@ const DebugRunShape = {
 
 const LAUNCH_RUNTIME_HANDSHAKE_MS = 10_000;
 const MOCK_PHASE_POLL_LIMIT = 32;
+/** play state, launch/attach, observe, capture, stop, summarize. */
+const DEBUG_RUN_PHASES = 5;
 
 export interface DebugRunIssue {
   severity: "error" | "warning";
@@ -108,6 +111,7 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
     const maxEvents = args.maxEvents ?? 100;
     const targetFps = args.targetFps ?? 60;
     const started = Date.now();
+    reportProgress(ctx, 0, "Reading Godot play state…", DEBUG_RUN_PHASES);
     if (mode === "custom" && (!args.path || args.path.trim().length === 0)) {
       return debugResult(ctx, started, observeMs, {
         verdict: "launch_failed",
@@ -165,6 +169,7 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
 
     let startedByTool = false;
     let scenePath = initialStatus.data.scenePath;
+    reportProgress(ctx, 1, attachedToExisting ? "Attaching to the running game…" : `Launching the ${mode} scene…`, DEBUG_RUN_PHASES);
     if (!attachedToExisting) {
       let launch: ToolEnvelope<PlayStatus>;
       try {
@@ -203,6 +208,7 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
     let handshakePolls = 0;
     let observationPolls = 0;
     let polls = 0;
+    reportProgress(ctx, 2, `Observing runtime logs and performance for ${observeMs}ms…`, DEBUG_RUN_PHASES);
 
     try {
       for (;;) {
@@ -257,6 +263,7 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
       }
 
       if (!observationFailure && capture && state.runtimeConnectedEver && state.latestPlaying) {
+        reportProgress(ctx, 3, "Requesting one in-game screenshot…", DEBUG_RUN_PHASES);
         const captureDeadline = Date.now() + 2_000;
         for (let capturePoll = 0; capturePoll < 40; capturePoll += 1) {
           const eventPageLimit = eventPageSize(state, maxEvents);
@@ -279,6 +286,7 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
       observationFailure = errorMessage(error);
     } finally {
       if (stopRequested) {
+        reportProgress(ctx, 4, "Stopping the run this call started…", DEBUG_RUN_PHASES);
         if (!state.latestRunId) {
           try {
             const eventPageLimit = eventPageSize(state, maxEvents);
@@ -349,6 +357,7 @@ export const godotDebugRun: ToolDef<typeof DebugRunShape, DebugRunResult> = {
       addSyntheticIssue(state, "warning", "editor", "stop_failed", `Godot did not confirm cleanup: ${stopFailure}`);
     }
 
+    reportProgress(ctx, DEBUG_RUN_PHASES, "Summarizing the debug evidence packet…", DEBUG_RUN_PHASES);
     const diagnostics = summarizeDiagnostics(state);
     const performance = summarizePerformance(state.samples, targetFps);
     const hasObservedIssues = diagnostics.issues.some((issue) => issue.kind !== "stop_failed") || performance.findings.length > 0;

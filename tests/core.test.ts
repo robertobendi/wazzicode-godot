@@ -57,6 +57,7 @@ describe("core product contract", () => {
       "play.stop",
       "play.status",
       "debug.snapshot",
+      "debug.captureFrames",
     ]);
     expect(Object.values(BRIDGE_METHODS).some((method) => /unity|prefab|gameobject/i.test(method))).toBe(false);
   });
