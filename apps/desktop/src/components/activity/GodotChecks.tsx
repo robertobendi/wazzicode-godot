@@ -65,7 +65,7 @@ export default function GodotChecks({
             <div className="flex items-center gap-2">
               <div className="text-xs font-semibold text-fg">Godot checks</div>
               {snapshot && (
-                <span className="rounded bg-godot/10 px-1.5 py-0.5 text-[9px] font-medium text-godot">
+                <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[9px] font-medium text-fg-dim">
                   {snapshot.play.playing ? "Running" : "Editing"}
                 </span>
               )}
@@ -80,7 +80,7 @@ export default function GodotChecks({
               onClick={runDebugObservation}
               disabled={!connected || agentBusy}
               title={agentBusy ? "The agent is already working" : "Observe runtime evidence without changing the project"}
-              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-godot/25 bg-godot/10 px-2 text-[9px] font-semibold uppercase tracking-[0.08em] text-godot hover:border-godot/45 hover:bg-godot/15 disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-action/25 bg-action/10 px-2 text-[9px] font-semibold uppercase tracking-[0.08em] text-action hover:border-action/45 hover:bg-action/15 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span className="relative flex h-2 w-2 items-center justify-center" aria-hidden="true">
                 <span className="absolute h-2 w-2 rounded-full border border-current opacity-45" />
@@ -163,7 +163,7 @@ export default function GodotChecks({
                 {snapshot.scenes.scenes.map((scene) => (
                   <li key={scene.path} className="rounded-lg border border-ink-700 bg-white px-3 py-2.5">
                     <div className="flex items-start gap-2">
-                      <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${scene.isActive ? "bg-godot" : "bg-ink-600"}`} />
+                      <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${scene.isActive ? "bg-action" : "bg-ink-600"}`} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 text-[11px] font-medium text-fg">
                           <span className="truncate">{scene.name}</span>
@@ -196,9 +196,9 @@ export default function GodotChecks({
 function DebugEvidenceCard({ run }: { run: GodotDebugRun }) {
   if (run.status === "running") {
     return (
-      <div className="mb-3 rounded-lg border border-godot/25 bg-godot/5 px-3 py-2.5">
+      <div className="mb-3 rounded-lg border border-action/25 bg-action/5 px-3 py-2.5">
         <div className="flex items-center gap-2 text-[10px] font-semibold text-fg">
-          <span className="h-2 w-2 animate-dot-pulse rounded-full bg-godot" />
+          <span className="h-2 w-2 animate-dot-pulse rounded-full bg-action" />
           Observing runtime evidence
         </div>
         <p className="mt-1 text-[10px] leading-relaxed text-fg-dim">
@@ -487,7 +487,7 @@ function Empty({ text, loading = false, action, onAction }: {
 }) {
   return (
     <div className="flex min-h-28 flex-col items-center justify-center px-4 text-center">
-      <span className={`mb-2 h-2.5 w-2.5 rounded-full ${loading ? "animate-dot-pulse bg-godot" : "bg-ink-600"}`} />
+      <span className={`mb-2 h-2.5 w-2.5 rounded-full ${loading ? "animate-dot-pulse bg-action" : "bg-ink-600"}`} />
       <p className="text-[11px] leading-relaxed text-fg-dim">{text}</p>
       {action && onAction && <button type="button" onClick={onAction} className="mt-3 rounded-md border border-ink-700 bg-white px-2.5 py-1.5 text-[10px] text-fg">{action}</button>}
     </div>

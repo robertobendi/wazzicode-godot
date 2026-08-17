@@ -28,7 +28,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
         <div className="glass-card w-full max-w-md rounded-2xl border p-6 text-center">
           <div className="mx-auto h-1.5 w-10 rounded-full bg-danger/70" />
           <h1 className="mt-5 text-xl font-semibold">
-            foundry-godot needs to reload
+            Foundry needs to reload
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-fg-muted">
             The interface hit a display problem. Your project files and saved
@@ -38,7 +38,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
             onClick={() => window.location.reload()}
             className="mt-6 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover"
           >
-            Reload foundry-godot
+            Reload Foundry
           </button>
           <details className="mt-4 text-left">
             <summary className="cursor-pointer text-xs text-fg-dim">

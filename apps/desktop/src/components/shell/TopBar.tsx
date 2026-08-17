@@ -93,7 +93,7 @@ export default function TopBar() {
         <span className="foundry-lockup flex shrink-0 items-center gap-2">
           <Logo />
           <span className="foundry-wordmark text-sm font-semibold tracking-tight text-fg">
-            Foundry <span className="text-godot">/ Godot</span>
+            Foundry <span className="text-action">/ Godot</span>
           </span>
         </span>
         <span aria-hidden className="h-4 w-px shrink-0 bg-ink-700" />

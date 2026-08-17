@@ -61,7 +61,7 @@ export default function MessageList() {
             <Logo size={27} />
           </div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-accent">
-            GODOT VIBE OS READY
+            Foundry ready
           </div>
           <h2 className="mt-3 text-xl font-semibold text-fg">
             What should we make?

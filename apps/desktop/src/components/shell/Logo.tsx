@@ -7,9 +7,9 @@ export default function Logo({ size = 20 }: { size?: number }) {
       aria-hidden="true"
       focusable="false"
     >
-      <rect x="40" y="40" width="944" height="944" rx="224" fill="#0B1117" />
+      <rect x="40" y="40" width="944" height="944" rx="224" fill="#11110F" />
       <g
-        fill="#6FBEF0"
+        fill="#6FBEEF"
         transform="matrix(2.6666667 0 0 2.6666667 -128 -320)"
       >
         <g>

@@ -32,13 +32,13 @@ The mental model is a foundry: intent enters; careful, visible work shapes it. N
 
 Use the shared dark-first neutral ramp: background `#0a0b0d`, raised surface `#101216`, foreground `#e8eaee`, green `#7dc598`, amber `#e8c874`, and red `#e06e6e`. Light mode is a full peer built from the same roles.
 
-Ember is the primary accent: `#f0915c` on dark, `#b8431f` on light, with `#3c2619` for selected fills. Use it for the primary action, selected mode, and an agent task in progress.
+Godot editor blue is the single primary accent: `#6fbeef` on dark, `#2b76a8` on light, with `#183244` (dark) / `#daeffb` (light) as the tinted fill behind selected chips. Use it for the primary action, selected mode, and an agent task in progress.
 
-Godot cyan-blue is a secondary, semantic accent. Use `#478cbf` sparingly for a connected live editor, the active scene or selected NodePath, and the frame or label of a fresh 2D/3D capture. It must not become a second general-purpose action color, gradient, glow, or decorative wash.
+There is no secondary accent. Each engine app carries exactly one accent — ember belongs to the Unity sibling, editor blue to this app — and the blue must not become a gradient, glow, or decorative wash.
 
 Typography is system-first—SF Pro, Inter, or Segoe UI Variable—with JetBrains Mono or SF Mono for `res://` paths, NodePaths, scripts, import output, and tool results. Use tabular numerals for cost, tokens, duration, and real measured counts.
 
-Icons are thin-stroke and geometric. The app mark remains two vertical piers joined by a bridge in a `#11110f` rounded square, with a pale ember glyph. Keep the piers distinct at 16×16; do not insert the Godot face or other engine imagery into the mark.
+Icons are thin-stroke and geometric. The app mark remains two vertical piers joined by a bridge in a `#11110f` rounded square — the container shared with the Unity sibling — with an editor-blue glyph (`#6fbeef`). Keep the piers distinct at 16×16; do not insert the Godot face or other engine imagery into the mark.
 
 ## Screenshots
 
