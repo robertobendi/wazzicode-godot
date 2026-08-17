@@ -4,6 +4,7 @@ use crate::error::{AppError, AppResult};
 use portable_pty::CommandBuilder;
 use serde::Deserialize;
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const CREDENTIAL_SERVICE: &str = "com.wazzicode.foundrygodot";
@@ -12,7 +13,11 @@ const OAUTH_TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 const OAUTH_TOKEN_FD_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR";
 const EFFORT_ENV: &str = "CLAUDE_CODE_EFFORT_LEVEL";
 const OFFICIAL_API_BASE: &str = "https://api.anthropic.com";
-const AUTH_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
+/// Deadline for `claude auth status`. Generous because this is a Node cold
+/// start: on Windows, with Defender scanning the CLI's files on first read, it
+/// routinely takes longer than a user would guess, and timing out here blocks
+/// the send rather than merely delaying it.
+const AUTH_STATUS_TIMEOUT: Duration = Duration::from_secs(30);
 const INHERITED_AUTH_ENV_VARS: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -167,6 +172,14 @@ pub fn verify_subscription_access() -> AppResult<()> {
 /// this app obtains them only from `claude setup-token`, whose CLI contract is
 /// subscription-only.
 pub fn verify_cli_subscription() -> AppResult<()> {
+    // Sign-in doesn't lapse mid-session, but this check costs a Node cold start
+    // and used to run on every send. Remember only success: a failure is worth
+    // re-checking, because the user's fix for it is to go and sign in.
+    static VERIFIED: OnceLock<()> = OnceLock::new();
+    if VERIFIED.get().is_some() {
+        return Ok(());
+    }
+
     let mut cmd = crate::proc::command("claude")?;
     scrub_inherited_credentials(&mut cmd);
     let settings = serde_json::to_string(&settings_document(None, false))?;
@@ -180,7 +193,11 @@ pub fn verify_cli_subscription() -> AppResult<()> {
         "--json",
     ]);
     let output = crate::proc::output_with_timeout(cmd, AUTH_STATUS_TIMEOUT)?;
-    validate_cli_auth_status(output.status.success(), &output.stdout)
+    let verdict = validate_cli_auth_status(output.status.success(), &output.stdout);
+    if verdict.is_ok() {
+        let _ = VERIFIED.set(());
+    }
+    verdict
 }
 
 fn validate_cli_auth_status(success: bool, stdout: &[u8]) -> AppResult<()> {

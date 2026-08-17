@@ -7,7 +7,17 @@
 // name the right one. Callers don't pass it: it's read from settings.
 
 import { currentBackend } from "@/lib/agentLabel";
-import type { AgentBackend } from "@/types/settings";
+import { BACKENDS, type AgentBackend } from "@/types/settings";
+
+// How the OS says "that program isn't there", across both platforms and both
+// layers that report it (Rust's io::Error, Node's spawn errors).
+const CLI_MISSING = [
+  "enoent",
+  "no such file",
+  "program not found",
+  "os error 2",
+  "os error 3",
+];
 
 export function mapErrorMessage(
   raw: string | undefined | null,
@@ -24,6 +34,11 @@ export function mapErrorMessage(
   }
   if (text.includes("project_identity_mismatch")) {
     return "A different Godot project is open. Switch the editor to this project.";
+  }
+  // Before the auth branch: a CLI we couldn't even launch has no session to
+  // have expired, and "reinstall" is the only thing that helps.
+  if (CLI_MISSING.some((needle) => text.includes(needle))) {
+    return `The ${BACKENDS[backend].label} CLI wasn't found. It may be installed but not visible to desktop apps — try opening this app from a terminal, or reinstall the CLI.`;
   }
   if (
     text.includes("invalid api key") ||

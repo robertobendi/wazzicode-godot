@@ -51,11 +51,25 @@ const PTY_ROWS: u16 = 50;
 /// child process forever.
 const OVERALL_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// How long we wait for the CLI's *first byte* before giving up. A child that
+/// dies during process startup (Windows blocking it, a damaged install) can
+/// leave the pty silent but open, and `OVERALL_TIMEOUT` is far too long to sit
+/// on a "Preparing…" spinner that is never going to move.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
+
 /// How long after code submission we let `claude setup-token` linger before
 /// killing it on purpose and letting the candidate-token check decide. The CLI keeps
 /// its TUI open after a successful login (observed live), so "wait for exit"
 /// alone would hang until OVERALL_TIMEOUT and then wrongly report failure.
 const POST_SUBMIT_GRACE_SECS: u64 = 90;
+
+/// The way out when this machine can't run `claude setup-token` at all: the
+/// CLI's own sign-in works from a normal terminal, and Studio accepts that
+/// login on its next start (`verify_cli_subscription`).
+const MANUAL_SIGN_IN_HINT: &str =
+    "You can sign in without this screen: run `claude auth login --claudeai` in a terminal, then reopen the app.";
+
+const SILENT_START_MESSAGE: &str = "Claude started but never responded, so pairing was stopped.";
 
 /// Bytes of ANSI-stripped tail kept for the "Show details" escape hatch on a
 /// failed pairing.
@@ -256,6 +270,8 @@ impl PairingManager {
         let id = nanoid::nanoid!(10);
         let cancelled = Arc::new(AtomicBool::new(false));
         let timed_out = Arc::new(AtomicBool::new(false));
+        let never_started = Arc::new(AtomicBool::new(false));
+        let saw_output = Arc::new(AtomicBool::new(false));
         let finished = Arc::new(AtomicBool::new(false));
         let intentional = Arc::new(AtomicBool::new(false));
         let child = Arc::new(Mutex::new(child));
@@ -275,7 +291,13 @@ impl PairingManager {
         self.shared.publish_if_active(&app, &id, starting);
         log::info!("pairing {id}: started setup-token");
 
-        spawn_watchdog(child.clone(), finished.clone(), timed_out.clone());
+        spawn_watchdog(
+            child.clone(),
+            finished.clone(),
+            timed_out.clone(),
+            saw_output.clone(),
+            never_started.clone(),
+        );
         self.spawn_reader(
             app,
             reader,
@@ -283,6 +305,8 @@ impl PairingManager {
             id.clone(),
             cancelled,
             timed_out,
+            never_started,
+            saw_output,
             finished,
             intentional,
         );
@@ -382,6 +406,8 @@ impl PairingManager {
         id: String,
         cancelled: Arc<AtomicBool>,
         timed_out: Arc<AtomicBool>,
+        never_started: Arc<AtomicBool>,
+        saw_output: Arc<AtomicBool>,
         finished: Arc<AtomicBool>,
         intentional: Arc<AtomicBool>,
     ) {
@@ -405,6 +431,7 @@ impl PairingManager {
                         if cancelled.load(Ordering::SeqCst) {
                             break;
                         }
+                        saw_output.store(true, Ordering::SeqCst);
                         pending.extend_from_slice(&buf[..n]);
                         // Emit only the longest valid-UTF-8 prefix; keep any
                         // trailing partial codepoint for the next read.
@@ -470,6 +497,7 @@ impl PairingManager {
 
             finished.store(true, Ordering::SeqCst);
             let status = child.lock().unwrap_or_else(|e| e.into_inner()).wait();
+            let exit_code = status.as_ref().ok().map(|s| s.exit_code());
 
             // A cancel/start-over already published Idle — say nothing more.
             if cancelled.load(Ordering::SeqCst) {
@@ -494,11 +522,18 @@ impl PairingManager {
                     .unwrap_or_else(|| {
                         Outcome::Failed("Claude finished pairing without returning a token.".into())
                     })
+            } else if never_started.load(Ordering::SeqCst) {
+                Outcome::Failed(format!("{SILENT_START_MESSAGE} {MANUAL_SIGN_IN_HINT}"))
             } else if did_timeout {
                 Outcome::Failed("Pairing timed out. Please start over.".into())
             } else {
+                // A launch failure is definitive and leaves no output to quote,
+                // so it outranks whatever the transcript happens to contain.
                 Outcome::Failed(
-                    failure_reason(&stripped)
+                    exit_code
+                        .and_then(|code| crate::proc::launch_failure("Claude", code))
+                        .map(|reason| format!("{reason} {MANUAL_SIGN_IN_HINT}"))
+                        .or_else(|| failure_reason(&stripped))
                         .unwrap_or_else(|| "Pairing didn't complete. Please try again.".into()),
                 )
             };
@@ -567,25 +602,35 @@ fn resolve_outcome(token: &SetupTokenCandidate, shared: &Shared, pairing_id: &st
     }
 }
 
-/// Watchdog: after the overall deadline, kill the child if the reader hasn't
-/// already finished. Flags `timed_out` so the outcome reports a timeout rather
-/// than a generic failure.
+/// Watchdog for both deadlines: `STARTUP_TIMEOUT` with no output at all (the
+/// CLI never really started), then `OVERALL_TIMEOUT` for the whole pairing. It
+/// kills the child if the reader hasn't already finished, and flags which
+/// deadline fired so the outcome says something specific instead of "failed".
 fn spawn_watchdog(
     child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
     finished: Arc<AtomicBool>,
     timed_out: Arc<AtomicBool>,
+    saw_output: Arc<AtomicBool>,
+    never_started: Arc<AtomicBool>,
 ) {
     std::thread::spawn(move || {
-        let deadline = std::time::Instant::now() + OVERALL_TIMEOUT;
-        while std::time::Instant::now() < deadline {
+        let started_at = std::time::Instant::now();
+        loop {
             if finished.load(Ordering::SeqCst) {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(500));
-        }
-        if !finished.load(Ordering::SeqCst) {
-            timed_out.store(true, Ordering::SeqCst);
+            let elapsed = started_at.elapsed();
+            let expired = if !saw_output.load(Ordering::SeqCst) && elapsed >= STARTUP_TIMEOUT {
+                &never_started
+            } else if elapsed >= OVERALL_TIMEOUT {
+                &timed_out
+            } else {
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            };
+            expired.store(true, Ordering::SeqCst);
             let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
+            return;
         }
     });
 }

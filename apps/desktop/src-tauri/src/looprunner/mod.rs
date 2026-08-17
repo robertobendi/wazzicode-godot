@@ -747,11 +747,9 @@ fn turn_failure(backend: Backend, info: &ExitInfo) -> Option<String> {
             .or_else(|| Some(format!("{} returned an error.", backend.label())));
     }
     if !info.result_seen {
-        return Some(crate::agent::spawn::friendly_spawn_error(
-            backend,
-            &info.stderr_tail,
-            info.exit_code,
-        ));
+        return Some(info.startup_failure.clone().unwrap_or_else(|| {
+            crate::agent::spawn::friendly_spawn_error(backend, &info.stderr_tail, info.exit_code)
+        }));
     }
     None
 }

@@ -365,8 +365,14 @@ fn install_plan(backend: Backend) -> InstallPlan {
                     program: "powershell",
                     args: vec![
                         "-NoProfile",
+                        // A machine whose policy is Restricted (common on managed
+                        // Windows) would otherwise refuse the downloaded script.
+                        "-ExecutionPolicy",
+                        "Bypass",
                         "-Command",
-                        "irm https://chatgpt.com/codex/install.ps1 | iex",
+                        // Windows PowerShell 5.1 still negotiates TLS 1.0 by
+                        // default, which these endpoints refuse outright.
+                        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://chatgpt.com/codex/install.ps1 | iex",
                     ],
                     env: vec![("CODEX_NON_INTERACTIVE", "1")],
                 }
@@ -390,8 +396,10 @@ fn install_plan(backend: Backend) -> InstallPlan {
                     program: "powershell",
                     args: vec![
                         "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
                         "-Command",
-                        "irm https://claude.ai/install.ps1 | iex",
+                        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://claude.ai/install.ps1 | iex",
                     ],
                     env: Vec::new(),
                 }

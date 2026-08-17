@@ -83,8 +83,20 @@ impl SessionManager {
         }
 
         let run_id = nanoid::nanoid!();
-        let (handle, join) =
-            spawn_streaming(app.clone(), backend, run_id.clone(), &project, args, prompt)?;
+        // Spawning is synchronous and can block for seconds before the child
+        // even exists: Claude's pre-flight `auth status` is itself a subprocess
+        // we wait on. Off the async workers, so one slow send can't stall
+        // everything else the runtime is driving.
+        let (handle, join) = {
+            let app = app.clone();
+            let project = project.clone();
+            let run_id = run_id.clone();
+            tokio::task::spawn_blocking(move || {
+                spawn_streaming(app, backend, run_id, &project, args, prompt)
+            })
+            .await
+            .map_err(|e| AppError::Other(format!("could not start the agent: {e}")))??
+        };
         self.runs.lock().unwrap().insert(
             run_id.clone(),
             RunHandle {
@@ -162,8 +174,14 @@ fn terminal_event(backend: Backend, info: &ExitInfo) -> TerminalEvent {
             "numTurns": info.num_turns,
         }))
     } else {
+        // The startup watchdog knows exactly what went wrong; nothing can be
+        // inferred from the stderr of a child that never wrote any.
+        let friendly = info
+            .startup_failure
+            .clone()
+            .unwrap_or_else(|| friendly_spawn_error(backend, &info.stderr_tail, info.exit_code));
         TerminalEvent::Error(serde_json::json!({
-            "friendly": friendly_spawn_error(backend, &info.stderr_tail, info.exit_code),
+            "friendly": friendly,
             "raw": format!("{}\n(exit code: {:?})", info.stderr_tail, info.exit_code),
         }))
     }

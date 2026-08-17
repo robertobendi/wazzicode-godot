@@ -27,7 +27,6 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-#[cfg(unix)]
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -57,6 +56,10 @@ pub struct ExitInfo {
     pub exit_code: Option<i32>,
     /// Last ~4 KiB of stderr, for crash diagnostics.
     pub stderr_tail: String,
+    /// Why the startup watchdog killed the run. Set only when the agent never
+    /// wrote a line, which is also the case where there is no stderr and no
+    /// meaningful exit code to explain the failure from.
+    pub startup_failure: Option<String>,
 }
 
 /// Handle to a live child, enough to cancel it. Cheap to clone.
@@ -155,6 +158,7 @@ pub fn spawn_streaming(
 
     let join = tokio::spawn(async move {
         let mut captured = Captured::default();
+        let mut startup_failure = None;
         // Drain stderr concurrently. Reading it only after stdout reaches EOF
         // can deadlock when a CLI fills the stderr pipe while stdout stays open.
         let stderr_task = tokio::spawn(async move {
@@ -166,23 +170,34 @@ pub fn spawn_streaming(
 
         if let Some(out) = stdout {
             let mut lines = BufReader::new(out).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.trim().is_empty() {
-                    continue;
+            let mut pending = match first_line(&mut lines, backend, startup_timeout(backend)).await
+            {
+                Ok(line) => line,
+                Err(reason) => {
+                    // Kill the group, not just the child: the agent's MCP server
+                    // is the thing most likely to be wedged, and it is a child.
+                    kill_tree(pid, child.clone()).await;
+                    startup_failure = Some(reason);
+                    None
                 }
-                match serde_json::from_str::<serde_json::Value>(&line) {
-                    Ok(value) => {
-                        capture(backend, &mut captured, &value);
-                        let _ = app.emit(&format!("agent:stream:{run_id}"), &value);
-                    }
-                    Err(_) => {
-                        // Non-JSON line — surface only to the debug drawer.
-                        let _ = app.emit(
-                            "debug:raw",
-                            serde_json::json!({ "runId": run_id, "line": line }),
-                        );
+            };
+            while let Some(line) = pending {
+                if !line.trim().is_empty() {
+                    match serde_json::from_str::<serde_json::Value>(&line) {
+                        Ok(value) => {
+                            capture(backend, &mut captured, &value);
+                            let _ = app.emit(&format!("agent:stream:{run_id}"), &value);
+                        }
+                        Err(_) => {
+                            // Non-JSON line — surface only to the debug drawer.
+                            let _ = app.emit(
+                                "debug:raw",
+                                serde_json::json!({ "runId": run_id, "line": line }),
+                            );
+                        }
                     }
                 }
+                pending = lines.next_line().await.ok().flatten();
             }
         }
 
@@ -202,6 +217,7 @@ pub fn spawn_streaming(
             cancelled: cancelled.load(Ordering::SeqCst),
             exit_code,
             stderr_tail,
+            startup_failure,
         }
     });
 
@@ -238,6 +254,45 @@ async fn kill_tree(pid: Option<u32>, child: Arc<AsyncMutex<tokio::process::Child
     }
     let _ = pid;
     let _ = child.lock().await.start_kill();
+}
+
+/// How long a backend may stay completely silent before we call the run dead.
+/// Codex gets no deadline of its own: it already enforces `startup_timeout_sec`
+/// on its MCP servers and reports that failure itself.
+fn startup_timeout(backend: Backend) -> Option<Duration> {
+    match backend {
+        Backend::Claude => Some(Duration::from_secs(60)),
+        Backend::Codex => None,
+    }
+}
+
+/// Wait for the run's first stream line, on a clock.
+///
+/// A CLI that starts but never speaks — a wedged MCP server handshake is the
+/// usual cause — leaves this reader parked on `next_line` indefinitely, and the
+/// UI showing "Thinking…" for as long as the user is willing to watch. Only the
+/// *first* line is timed: once the agent is talking, a long silence is just a
+/// long tool call and killing it would be wrong.
+async fn first_line<R>(
+    lines: &mut tokio::io::Lines<R>,
+    backend: Backend,
+    limit: Option<Duration>,
+) -> Result<Option<String>, String>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    let Some(limit) = limit else {
+        return Ok(lines.next_line().await.ok().flatten());
+    };
+    match tokio::time::timeout(limit, lines.next_line()).await {
+        Ok(line) => Ok(line.ok().flatten()),
+        Err(_) => Err(format!(
+            "{} produced no output for {}s — it may be stuck starting an MCP server; \
+             check that the project's MCP config is valid.",
+            backend.label(),
+            limit.as_secs()
+        )),
+    }
 }
 
 /// Fields pulled off the stream for the `ExitInfo` / terminal events. Written by
@@ -335,6 +390,13 @@ pub fn friendly_spawn_error(backend: Backend, stderr_tail: &str, exit_code: Opti
             backend.label()
         );
     }
+    // A Windows startup failure exits with an NTSTATUS and writes nothing, so
+    // the raw code is all we'd otherwise have to show.
+    if let Some(reason) =
+        exit_code.and_then(|code| crate::proc::launch_failure(backend.label(), code as u32))
+    {
+        return reason;
+    }
     match exit_code {
         Some(code) => format!(
             "{} stopped unexpectedly (exit code {code}).",
@@ -357,9 +419,54 @@ mod tests {
     }
 
     #[test]
+    fn a_windows_startup_failure_is_explained_not_printed_as_a_negative_code() {
+        // 0xC0000142 (STATUS_DLL_INIT_FAILED) as std's signed exit code.
+        let msg = friendly_spawn_error(Backend::Claude, "", Some(-1_073_741_502));
+        assert!(msg.contains("0xC0000142"), "{msg}");
+        assert!(!msg.contains("-1073741502"), "{msg}");
+    }
+
+    #[test]
     fn missing_binary_names_the_selected_backend() {
         let msg = friendly_spawn_error(Backend::Codex, "ENOENT", None);
         assert!(msg.contains("Codex CLI"));
+    }
+
+    #[tokio::test]
+    async fn a_run_that_never_says_anything_is_reported_not_waited_on() {
+        // The write half stays alive and silent, so the reader would otherwise
+        // block here forever.
+        let (silent, _writer) = tokio::io::duplex(64);
+        let mut lines = BufReader::new(silent).lines();
+
+        let reason = first_line(&mut lines, Backend::Claude, Some(Duration::from_millis(20)))
+            .await
+            .expect_err("a silent start must not hang the reader");
+
+        assert!(reason.contains("MCP"), "{reason}");
+        assert!(reason.starts_with("Claude produced no output"), "{reason}");
+    }
+
+    #[tokio::test]
+    async fn the_first_line_is_returned_when_it_arrives_in_time() {
+        let (reader, mut writer) = tokio::io::duplex(64);
+        writer.write_all(b"{\"type\":\"system\"}\n").await.unwrap();
+        let mut lines = BufReader::new(reader).lines();
+
+        let first = first_line(&mut lines, Backend::Claude, Some(Duration::from_secs(5)))
+            .await
+            .expect("a talking child is not a failure");
+
+        assert_eq!(first.as_deref(), Some("{\"type\":\"system\"}"));
+    }
+
+    #[test]
+    fn only_claude_gets_our_own_startup_deadline() {
+        assert_eq!(
+            startup_timeout(Backend::Claude),
+            Some(Duration::from_secs(60))
+        );
+        assert_eq!(startup_timeout(Backend::Codex), None);
     }
 
     #[test]

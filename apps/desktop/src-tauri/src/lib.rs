@@ -34,6 +34,7 @@ fn install_panic_hook() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     install_panic_hook();
+    proc::fail_child_startup_errors_silently();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
