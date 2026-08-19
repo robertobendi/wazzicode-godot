@@ -417,7 +417,9 @@ impl LoopManager {
         shared.stop.store(true, Ordering::SeqCst);
         {
             let mut st = shared.state.lock().await;
-            if st.status == LoopStatus::Running {
+            // Stop overrides a pause that hasn't landed yet, so the button
+            // doesn't look inert while the label still reads "Pausing…".
+            if matches!(st.status, LoopStatus::Running | LoopStatus::Pausing) {
                 st.status = LoopStatus::Stopping;
             }
         }
@@ -1286,6 +1288,16 @@ mod tests {
         assert!(LoopStatus::Pausing.is_active());
         assert!(!LoopStatus::Paused.is_active());
         assert!(LoopStatus::Running.is_active());
+    }
+
+    #[test]
+    fn stopping_supersedes_a_pause_that_has_not_landed() {
+        // Both flags can be set; the driver checks `stopped` first, so the
+        // status has to agree or the Stop button reads as inert.
+        for status in [LoopStatus::Running, LoopStatus::Pausing] {
+            assert!(status.is_active(), "{status:?} must still own the project");
+        }
+        assert!(!LoopStatus::Paused.is_active());
     }
 
     #[test]
