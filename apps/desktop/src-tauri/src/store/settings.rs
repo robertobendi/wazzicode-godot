@@ -1,5 +1,6 @@
 use crate::agent::{AgentModelOption, Backend};
 use crate::error::AppResult;
+use crate::houserules::HouseRules;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -70,6 +71,11 @@ pub struct Settings {
     pub codex_model_follows_catalog: bool,
     #[serde(default)]
     pub codex_effort_follows_model: bool,
+    /// Standing instructions appended to the end of every prompt. A settings
+    /// file written before this existed has no key, so it adopts the
+    /// recommended defaults (see `houserules::HouseRules`) rather than none.
+    #[serde(default)]
+    pub house_rules: HouseRules,
     /// Color scheme for the UI. Defaults to following the OS.
     #[serde(default)]
     pub theme: ThemeChoice,
@@ -126,6 +132,7 @@ impl Default for Settings {
             effort_follows_model: true,
             codex_model_follows_catalog: true,
             codex_effort_follows_model: true,
+            house_rules: HouseRules::default(),
             theme: ThemeChoice::Dark,
             debug_drawer: false,
             paired_ok: false,

@@ -63,6 +63,10 @@ pub async fn chat_send(
     let mcp_config = crate::mcpconfig::ensure_mcp_config(&app, &state.config_dir, &project_path)?;
     let mcp_entry = crate::mcpconfig::mcp_entry(&app, &project_path);
     let settings = state.settings.read().await.clone();
+    // The user's standing instructions ride at the end of every turn - the tail
+    // they used to retype by hand. Applied after the checkpoint so the commit
+    // message stays their own words.
+    let prompt = settings.house_rules.apply(&prompt);
     let backend = options.backend;
     let args = build_args(
         backend,

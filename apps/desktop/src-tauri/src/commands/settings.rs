@@ -1,4 +1,5 @@
 use crate::error::AppResult;
+use crate::houserules::{HouseRule, CATALOG};
 use crate::state::AppState;
 use crate::store::settings::{save, Settings};
 use tauri::State;
@@ -24,4 +25,12 @@ pub async fn update_settings(
 #[tauri::command]
 pub async fn ping() -> AppResult<String> {
     Ok("pong".to_string())
+}
+
+/// The house-rule catalog: every toggleable directive with the exact text it
+/// appends. The webview renders labels and hints from this, and shows `text` so
+/// the user can see precisely what is added to their prompts.
+#[tauri::command]
+pub async fn house_rule_catalog() -> AppResult<Vec<&'static HouseRule>> {
+    Ok(CATALOG.iter().collect())
 }

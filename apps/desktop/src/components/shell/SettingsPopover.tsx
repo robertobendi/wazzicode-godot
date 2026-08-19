@@ -11,6 +11,7 @@ import { isLoopActive } from "@/types/loop";
 import { useUiStore } from "@/stores/useUiStore";
 import { BACKENDS, type AgentBackend } from "@/types/settings";
 import BackendPicker from "./BackendPicker";
+import HouseRulesPanel from "./HouseRulesPanel";
 import ThemePicker from "./ThemePicker";
 
 /**
@@ -122,7 +123,7 @@ export default function SettingsPopover() {
       if (e.key !== "Tab" || !ref.current) return;
       const focusable = Array.from(
         ref.current.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), select:not(:disabled), input:not(:disabled), summary, [tabindex]:not([tabindex="-1"])',
+          'button:not(:disabled), select:not(:disabled), input:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])',
         ),
       );
       if (focusable.length === 0) return;
@@ -301,6 +302,20 @@ export default function SettingsPopover() {
             Re-pair
           </button>
         )}
+      </div>
+
+      <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-dim">
+        House rules
+      </div>
+      <p className="mt-1.5 text-xs leading-relaxed text-fg-dim">
+        Added to the end of every prompt, in chat and in auto mode — so you stop
+        retyping them.
+      </p>
+      <div className="mt-2">
+        <HouseRulesPanel
+          value={settings.houseRules}
+          onChange={(houseRules) => void update({ houseRules })}
+        />
       </div>
 
       <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-dim">

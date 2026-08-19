@@ -11,6 +11,22 @@ export type {
 
 export type ThemeChoice = "system" | "light" | "dark";
 
+/** One toggleable directive from the Rust catalog (`houserules.rs`). `text` is
+ *  what actually reaches the agent; the rest is presentation. */
+export interface HouseRule {
+  id: string;
+  label: string;
+  hint: string;
+  text: string;
+  defaultOn: boolean;
+}
+
+/** Which rules the user keeps, plus instructions of their own. */
+export interface HouseRules {
+  enabled: string[];
+  custom: string;
+}
+
 export interface Settings {
   schemaVersion: number;
   recentProjects: string[];
@@ -32,6 +48,9 @@ export interface Settings {
   effortFollowsModel?: boolean;
   codexModelFollowsCatalog?: boolean;
   codexEffortFollowsModel?: boolean;
+  /** Standing instructions appended to the end of every prompt (chat + auto).
+   *  Rendered in Rust so both paths use one catalog. */
+  houseRules: HouseRules;
   /** Color scheme for the UI; "system" follows the OS. */
   theme: ThemeChoice;
   /** Show the raw stream / debug drawer in the UI. */

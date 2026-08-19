@@ -23,6 +23,7 @@ const initial: Settings = {
   codexModel: null,
   effort: null,
   codexEffort: null,
+  houseRules: { enabled: [], custom: "" },
   theme: "system",
   debugDrawer: false,
   pairedOk: false,

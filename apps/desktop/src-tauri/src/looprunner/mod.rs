@@ -388,6 +388,7 @@ impl Driver {
                 qa_feedback.as_deref(),
                 &user_feedback,
                 self.options.continuation_context.as_deref(),
+                self.settings.house_rules.block().as_deref(),
             );
             user_feedback.clear();
             let args = self.turn_args(builder_session.as_deref(), 60);
@@ -866,9 +867,13 @@ fn builder_prompt(
     qa_feedback: Option<&str>,
     user_feedback: &[String],
     continuation_context: Option<&str>,
+    house_rules: Option<&str>,
 ) -> String {
     let refs = reference_block(images);
     let feedback = feedback_block(user_feedback);
+    // Before the tail, never after: BUILDER_TAIL's fenced-verdict contract ends
+    // with "NOTHING after it" and the reflector parses on that.
+    let rules = house_rules.map_or_else(String::new, |block| format!("\n\n{block}"));
     if i == 0 {
         let continuation = continuation_context
             .filter(|context| !context.trim().is_empty())
@@ -882,7 +887,7 @@ fn builder_prompt(
                 "\n\nThis is the first iteration. Implement the FIRST small, safe increment toward the goal — do not attempt everything at once.".into()
             });
         format!(
-            "You are an autonomous Godot build agent working toward a goal, one small increment at a time. Use Godot-native scenes, nodes, resources, and scripts.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}{feedback}{continuation}{BUILDER_TAIL}"
+            "You are an autonomous Godot build agent working toward a goal, one small increment at a time. Use Godot-native scenes, nodes, resources, and scripts.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}{feedback}{continuation}{rules}{BUILDER_TAIL}"
         )
     } else {
         let qa = match qa_feedback {
@@ -892,7 +897,7 @@ fn builder_prompt(
             _ => String::new(),
         };
         format!(
-            "Continue working toward the goal.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nPrevious iteration summary: {prev_summary}{qa}{feedback}\n\nImplement the NEXT small increment toward the goal.{BUILDER_TAIL}"
+            "Continue working toward the goal.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nPrevious iteration summary: {prev_summary}{qa}{feedback}\n\nImplement the NEXT small increment toward the goal.{rules}{BUILDER_TAIL}"
         )
     }
 }
@@ -1013,7 +1018,7 @@ mod tests {
 
     #[test]
     fn builder_prompt_switches_on_iteration() {
-        let first = builder_prompt(0, "make a cube", &[], "", None, &[], None);
+        let first = builder_prompt(0, "make a cube", &[], "", None, &[], None, None);
         assert!(first.contains("first iteration"));
         assert!(first.contains("make a cube"));
         assert!(first.contains("```json"));
@@ -1027,6 +1032,7 @@ mod tests {
             "added a plane",
             Some("cube is the wrong colour"),
             &["Make it twice as large.".into()],
+            None,
             None,
         );
         assert!(later.contains("Previous iteration summary: added a plane"));
@@ -1043,10 +1049,36 @@ mod tests {
             None,
             &[],
             Some("Step 1 already added the cube."),
+            None,
         );
         assert!(continued.contains("CONTINUATION CONTEXT"));
         assert!(continued.contains("Step 1 already added the cube."));
         assert!(continued.contains("not a blank-slate first step"));
+    }
+
+    #[test]
+    fn house_rules_land_before_the_verdict_contract() {
+        let block = crate::houserules::HouseRules::default()
+            .block()
+            .expect("defaults render a block");
+        for iteration in [0, 2] {
+            let prompt = builder_prompt(
+                iteration,
+                "make a cube",
+                &[],
+                "added a plane",
+                None,
+                &[],
+                None,
+                Some(&block),
+            );
+            let rules = prompt.find("--- House rules ---").expect("rules present");
+            let verdict = prompt.find("END your reply").expect("tail present");
+            assert!(rules < verdict, "iteration {iteration} put rules after the tail");
+        }
+        // No rules selected leaves the prompt exactly as it was.
+        assert!(!builder_prompt(0, "make a cube", &[], "", None, &[], None, None)
+            .contains("House rules"));
     }
 
     #[test]

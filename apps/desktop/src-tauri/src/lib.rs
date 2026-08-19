@@ -6,6 +6,7 @@ pub mod commands;
 pub mod error;
 pub mod execution;
 pub mod gitutil;
+pub mod houserules;
 pub mod looprunner;
 pub mod mcpconfig;
 pub mod pairing;
@@ -81,6 +82,7 @@ pub fn run() {
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::settings::ping,
+            commands::settings::house_rule_catalog,
             commands::agent_options::agent_model_catalog,
             commands::project::validate_godot_project,
             commands::project::set_current_project,

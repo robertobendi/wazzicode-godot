@@ -9,7 +9,7 @@ import type {
   AgentModelOption,
   AgentRunOptions,
 } from "@/types/agent";
-import type { Settings } from "@/types/settings";
+import type { HouseRule, Settings } from "@/types/settings";
 import type { ProjectInfo } from "@/types/project";
 import type { ChatTerminalEvent, StagedResource } from "@/types/chat";
 import type { AuthStatus, AuthVerify, PairingState } from "@/types/pairing";
@@ -36,6 +36,8 @@ export const api = {
     invoke<Settings>("update_settings", { settings }),
   // Liveness probe used during startup/dev.
   ping: () => invoke<string>("ping"),
+  /** Every house rule the app knows, including the exact text it appends. */
+  houseRuleCatalog: () => invoke<HouseRule[]>("house_rule_catalog"),
 
   // Project selection / validation.
   validateGodotProject: (path: string) =>
