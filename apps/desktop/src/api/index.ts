@@ -139,6 +139,10 @@ export const api = {
   loopStart: (project: string, goal: string, options: LoopOptions) =>
     invoke<string>("loop_start", { project, goal, options }),
   loopStop: () => invoke<void>("loop_stop"),
+  /** Park at the next step boundary; the turn in flight still finishes. */
+  loopPause: () => invoke<void>("loop_pause"),
+  loopResume: (project: string, note: string | null) =>
+    invoke<string>("loop_resume", { project, note }),
   loopFeedback: (comment: string) =>
     invoke<void>("loop_feedback", { comment }),
   loopState: (project: string) =>

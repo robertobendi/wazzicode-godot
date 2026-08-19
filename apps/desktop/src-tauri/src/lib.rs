@@ -102,6 +102,8 @@ pub fn run() {
             commands::quick_actions::read_quick_actions,
             commands::loops::loop_start,
             commands::loops::loop_stop,
+            commands::loops::loop_pause,
+            commands::loops::loop_resume,
             commands::loops::loop_feedback,
             commands::loops::loop_state,
             commands::status::status_start,

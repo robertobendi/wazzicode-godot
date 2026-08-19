@@ -24,6 +24,10 @@ interface LoopStoreState {
   start: (project: string, goal: string, options: LoopOptions) => Promise<void>;
   continueRun: (project: string, note: string) => Promise<void>;
   stop: () => Promise<void>;
+  /** Park at the next step boundary. The turn in flight still finishes. */
+  pause: () => Promise<void>;
+  /** Undo a pending pause, or relaunch a parked run from its cursor. */
+  resume: (project: string, note?: string) => Promise<void>;
   addFeedback: (comment: string) => Promise<boolean>;
 
   // Called by useLoopEvents — not part of the UI surface.
@@ -86,6 +90,32 @@ export const useLoopStore = create<LoopStoreState>((set, get) => ({
       await api.loopStop();
     } catch {
       // The driver still emits a terminal `loop:update`; nothing to do here.
+    }
+  },
+
+  pause: async () => {
+    set({ error: null });
+    try {
+      await api.loopPause();
+    } catch (e) {
+      set({ error: friendlyError(String(e), "Couldn't pause this run.") });
+    }
+  },
+
+  resume: async (project, note) => {
+    if (get().starting) return;
+    set({ starting: true, error: null });
+    try {
+      await api.loopResume(project, note?.trim() ? note.trim() : null);
+    } catch (e) {
+      const raw = String(e);
+      set({
+        error: raw.startsWith("busy")
+          ? "Finish or stop the running task first, then resume."
+          : friendlyError(raw, "Couldn't resume this run."),
+      });
+    } finally {
+      set({ starting: false });
     }
   },
 

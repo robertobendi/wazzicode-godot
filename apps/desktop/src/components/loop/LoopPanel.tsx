@@ -3,6 +3,7 @@ import { useChatStore } from "@/stores/useChatStore";
 import { useLoopStore } from "@/stores/useLoopStore";
 import {
   isLoopActive,
+  isLoopPaused,
   type LoopState,
   type LoopStatus,
 } from "@/types/loop";
@@ -38,7 +39,9 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
   const state = useLoopStore((s) => s.state)!;
   const nowDoing = useLoopStore((s) => s.nowDoing);
   const stop = useLoopStore((s) => s.stop);
+  const pause = useLoopStore((s) => s.pause);
   const active = isLoopActive(state.status);
+  const paused = isLoopPaused(state.status);
   const backend = BACKENDS[state.options.agent.backend];
   const warnings = state.warnings.filter(
     (warning) =>
@@ -96,6 +99,8 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
 
           {active ? (
             <NowDoing label={nowDoing} status={state.status} />
+          ) : paused ? (
+            <PausedBanner steps={state.iterations.length} />
           ) : (
             <StatusBanner status={state.status} agentLabel={backend.label} />
           )}
@@ -109,7 +114,9 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
             </p>
           ))}
 
-          {!active && <RunRecap state={state} agentLabel={backend.label} />}
+          {!active && !paused && (
+            <RunRecap state={state} agentLabel={backend.label} />
+          )}
 
           <IterationTimeline iterations={state.iterations} />
         </div>
@@ -119,10 +126,11 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
       <div className="glass-bar mx-3 mb-3 rounded-2xl border px-6 py-3">
         <div className="mx-auto max-w-4xl">
           {active && <FeedbackComposer />}
-          {!active && state.status !== "done" && <RecoveryComposer />}
+          {paused && <ResumeComposer />}
+          {!active && !paused && state.status !== "done" && <RecoveryComposer />}
           <div
             className={`flex items-center justify-between ${
-              active || state.status !== "done"
+              active || paused || state.status !== "done"
                 ? "mt-3 border-t border-white/[0.06] pt-3"
                 : ""
             }`}
@@ -133,13 +141,23 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
               {state.options.maxIterations} max
             </span>
             {active ? (
-              <button
-                onClick={() => void stop()}
-                disabled={state.status === "stopping"}
-                className="rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white transition-colors duration-150 hover:brightness-110 disabled:opacity-50"
-              >
-                {state.status === "stopping" ? "Stopping…" : "Stop"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void pause()}
+                  disabled={state.status !== "running"}
+                  title="Let this step finish, then hold. Nothing is lost."
+                  className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-2.5 text-sm font-semibold text-fg transition-colors duration-150 hover:bg-white/[0.09] disabled:opacity-50"
+                >
+                  {state.status === "pausing" ? "Pausing…" : "Pause"}
+                </button>
+                <button
+                  onClick={() => void stop()}
+                  disabled={state.status === "stopping"}
+                  className="rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white transition-colors duration-150 hover:brightness-110 disabled:opacity-50"
+                >
+                  {state.status === "stopping" ? "Stopping…" : "Stop"}
+                </button>
+              </div>
             ) : (
               <button
                 onClick={onNewGoal}
@@ -149,7 +167,11 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
                     : "border border-white/10 bg-white/[0.04] text-fg-muted hover:bg-white/[0.08] hover:text-fg"
                 }`}
               >
-                {state.status === "done" ? "Start another" : "Start a new goal"}
+                {state.status === "done"
+                  ? "Start another"
+                  : paused
+                    ? "Abandon and start a new goal"
+                    : "Start a new goal"}
               </button>
             )}
           </div>
@@ -249,6 +271,46 @@ function FeedbackComposer() {
         </p>
       )}
     </form>
+  );
+}
+
+/** Paused runs resume from their cursor, so this note is optional guidance
+ *  for the very next step rather than a fresh start. */
+function ResumeComposer() {
+  const project = useChatStore((store) => store.project);
+  const resume = useLoopStore((store) => store.resume);
+  const starting = useLoopStore((store) => store.starting);
+  const error = useLoopStore((store) => store.error);
+  const [note, setNote] = useState("");
+
+  return (
+    <div className="rounded-xl bg-black/15 px-3 py-2">
+      <p className="text-xs font-semibold text-fg">Resume this run</p>
+      <p className="mt-0.5 text-[11px] text-fg-dim">
+        It picks up at the next step with the same context. Anything you add
+        here is read before that step starts.
+      </p>
+      <div className="mt-2 flex items-end gap-2">
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          maxLength={2000}
+          rows={2}
+          placeholder="Optional: what you noticed while it was paused."
+          className="selectable min-h-[3rem] flex-1 resize-none rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs leading-relaxed text-fg placeholder:text-fg-dim focus:border-accent/40 focus:outline-none"
+        />
+        <button
+          onClick={() => {
+            if (project) void resume(project, note);
+          }}
+          disabled={!project || starting}
+          className="shrink-0 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
+        >
+          {starting ? "Resuming…" : "Resume"}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
+    </div>
   );
 }
 
@@ -363,6 +425,27 @@ function RunRecap({
   );
 }
 
+function PausedBanner({ steps }: { steps: number }) {
+  return (
+    <div className="glass-card flex items-start gap-3 rounded-xl border px-4 py-3">
+      <span
+        aria-hidden
+        className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-warning"
+      />
+      <div className="min-w-0">
+        <p className="text-sm text-fg">
+          Paused after step {steps}. Nothing was lost — that step finished and
+          was checkpointed.
+        </p>
+        <p className="mt-0.5 text-xs text-fg-dim">
+          Chat is free to use while this waits. Resuming continues the same
+          conversation rather than starting over.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function NowDoing({
   label,
   status,
@@ -379,7 +462,9 @@ function NowDoing({
       <span className="text-sm text-fg">
         {status === "stopping"
           ? "Stopping…"
-          : (label ?? "Working…")}
+          : status === "pausing"
+            ? "Finishing this step, then pausing…"
+            : (label ?? "Working…")}
       </span>
     </div>
   );
@@ -419,6 +504,8 @@ function StatusBanner({
     },
     running: undefined,
     stopping: undefined,
+    pausing: undefined,
+    paused: undefined,
   };
   const entry = map[status];
   if (!entry) return null;

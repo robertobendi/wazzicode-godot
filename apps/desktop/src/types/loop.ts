@@ -6,6 +6,10 @@ import type { AgentRunOptions } from "./agent";
 export type LoopStatus =
   | "running"
   | "stopping"
+  /** Pause requested; the turn in flight finishes first. */
+  | "pausing"
+  /** Parked at a step boundary and resumable. */
+  | "paused"
   | "done"
   | "stopped"
   | "blocked"
@@ -57,6 +61,16 @@ export interface LoopIteration {
   qa: QaResult | null;
 }
 
+/** Where a paused run picks back up. Set only while `paused`. */
+export interface LoopCursor {
+  nextIteration: number;
+  strikes: number;
+  prevSummary: string;
+  qaFeedback: string | null;
+  carriedFeedback: string[];
+  builderSessionId: string | null;
+}
+
 export interface LoopState {
   loopId: string;
   goal: string;
@@ -69,11 +83,19 @@ export interface LoopState {
   feedback: LoopFeedback[];
   failure: LoopFailure | null;
   currentRunId: string | null;
+  cursor?: LoopCursor | null;
 }
 
-/** A running loop is one whose status hasn't reached a terminal state. */
+/** A running loop is one whose status hasn't reached a terminal state. A
+ *  paused run is deliberately *not* active: it holds no project lock, so chat
+ *  works while it waits. */
 export function isLoopActive(status: LoopStatus | undefined): boolean {
-  return status === "running" || status === "stopping";
+  return status === "running" || status === "stopping" || status === "pausing";
+}
+
+/** Parked and resumable — distinct from finished, which cannot be resumed. */
+export function isLoopPaused(status: LoopStatus | undefined): boolean {
+  return status === "paused";
 }
 
 export const DEFAULT_LOOP_OPTIONS: LoopOptions = {

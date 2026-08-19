@@ -89,6 +89,8 @@ interface ChatState {
   removeQueued: (id: string) => Promise<void>;
   clearQueue: () => Promise<void>;
   pauseQueue: (reason: string) => void;
+  /** Lift a pause and start the next task. The only way out of a paused queue. */
+  resumeQueue: () => Promise<void>;
   cancel: () => Promise<void>;
   reset: () => void;
   /** Append a quiet, system-style notice line (e.g. after a revert). */
@@ -327,6 +329,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (state.running || !state.project || state.queuedTasks.length === 0) {
       return false;
     }
+    // A paused queue never auto-advances — including the terminal-event path
+    // that drains it after a task completes. Only resumeQueue lifts this.
+    if (state.queuePauseReason) return false;
     const [next, ...remaining] = state.queuedTasks;
     set({ queuedTasks: remaining, queuePauseReason: null });
     await get().send(next.prompt, next.attachments, next.runOptions);
@@ -367,6 +372,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) =>
       state.queuedTasks.length > 0 ? { queuePauseReason: reason } : {},
     ),
+
+  resumeQueue: async () => {
+    if (!get().queuePauseReason) return;
+    set({ queuePauseReason: null });
+    // No-op while a task is still running; its terminal event drains the queue.
+    await get().runNextQueued();
+  },
 
   cancel: async () => {
     const { running, activeRunId: runId } = get();

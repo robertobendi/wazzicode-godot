@@ -73,6 +73,11 @@ pub struct LoopOptions {
 pub enum LoopStatus {
     Running,
     Stopping,
+    /// Pause requested: the current turn is allowed to finish first.
+    Pausing,
+    /// Parked at a step boundary with a resumable cursor. Not active, so the
+    /// project is free for chat until the user resumes.
+    Paused,
     Done,
     Stopped,
     Blocked,
@@ -83,7 +88,10 @@ pub enum LoopStatus {
 
 impl LoopStatus {
     fn is_active(self) -> bool {
-        matches!(self, LoopStatus::Running | LoopStatus::Stopping)
+        matches!(
+            self,
+            LoopStatus::Running | LoopStatus::Stopping | LoopStatus::Pausing
+        )
     }
 }
 
@@ -129,6 +137,24 @@ pub struct LoopIteration {
     pub qa: Option<QaResult>,
 }
 
+/// Everything the driver needs to pick a paused loop back up exactly where it
+/// left off. Persisted with the state, so a pause outlives closing Studio.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopCursor {
+    /// Index of the iteration that runs next.
+    pub next_iteration: u32,
+    /// Consecutive no-progress turns, so the stuck-detector isn't reset by a pause.
+    pub strikes: u32,
+    pub prev_summary: String,
+    /// QA notes the next builder turn still has to address.
+    pub qa_feedback: Option<String>,
+    /// Feedback already claimed for the next turn but not yet delivered to it.
+    pub carried_feedback: Vec<String>,
+    /// Agent session to `--resume`, so the builder keeps its context across a pause.
+    pub builder_session_id: Option<String>,
+}
+
 /// The full persisted + broadcast loop state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -150,6 +176,9 @@ pub struct LoopState {
     pub failure: Option<LoopFailure>,
     /// The currently-streaming sub-run id, for the live "now doing" line.
     pub current_run_id: Option<String>,
+    /// Set only while `paused`; consumed when the run resumes.
+    #[serde(default)]
+    pub cursor: Option<LoopCursor>,
 }
 
 /// Shared, cloneable slice of a running loop — everything `loop_stop` /
@@ -159,6 +188,9 @@ struct LoopShared {
     project: PathBuf,
     dir: PathBuf,
     stop: AtomicBool,
+    /// Pause request. Unlike `stop` it never kills a child: the driver observes
+    /// it only at a step boundary, once the turn's checkpoint has landed.
+    pause: AtomicBool,
     /// The child of the currently-running builder/QA turn, if any.
     child: AsyncMutex<Option<ChildHandle>>,
     state: AsyncMutex<LoopState>,
@@ -215,6 +247,7 @@ impl LoopManager {
             feedback: Vec::new(),
             failure: None,
             current_run_id: None,
+            cursor: None,
         };
 
         let shared = Arc::new(LoopShared {
@@ -222,6 +255,7 @@ impl LoopManager {
             project,
             dir,
             stop: AtomicBool::new(false),
+            pause: AtomicBool::new(false),
             child: AsyncMutex::new(None),
             state: AsyncMutex::new(state),
         });
@@ -238,8 +272,131 @@ impl LoopManager {
             options,
             _permit: permit,
         };
-        let task = tokio::spawn(async move { driver.run().await });
+        let task = tokio::spawn(async move { driver.run(None).await });
 
+        *guard = Some(ActiveLoop {
+            shared,
+            _task: task,
+        });
+        Ok(loop_id)
+    }
+
+    /// Request a pause. The in-flight builder/QA turn is left alone so its work
+    /// and git checkpoint still land; the driver parks at the next step
+    /// boundary and drops its project permit, freeing the project for chat.
+    pub async fn pause(&self, app: &AppHandle) -> AppResult<()> {
+        let shared = {
+            let guard = self.active.lock().await;
+            guard.as_ref().map(|active| active.shared.clone())
+        }
+        .ok_or_else(|| AppError::Other("No Auto mode loop is running.".into()))?;
+
+        {
+            let mut state = shared.state.lock().await;
+            if state.status != LoopStatus::Running {
+                return Err(AppError::Other(
+                    "This Auto mode loop is not running.".into(),
+                ));
+            }
+            state.status = LoopStatus::Pausing;
+        }
+        shared.pause.store(true, Ordering::SeqCst);
+        persist_and_emit(app, &shared).await;
+        Ok(())
+    }
+
+    /// Undo a pause that hasn't taken effect yet (the turn is still running).
+    /// Returns false when there is no such loop, so the caller can fall through
+    /// to relaunching a fully paused one.
+    pub async fn cancel_pause(&self, app: &AppHandle) -> bool {
+        let shared = {
+            let guard = self.active.lock().await;
+            guard.as_ref().map(|active| active.shared.clone())
+        };
+        let Some(shared) = shared else { return false };
+        {
+            let mut state = shared.state.lock().await;
+            if state.status != LoopStatus::Pausing {
+                return false;
+            }
+            state.status = LoopStatus::Running;
+        }
+        shared.pause.store(false, Ordering::SeqCst);
+        persist_and_emit(app, &shared).await;
+        true
+    }
+
+    /// Relaunch a parked loop from its cursor: same loop id, same state file,
+    /// same builder session, so the agent keeps its context.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn resume(
+        &self,
+        app: AppHandle,
+        project: PathBuf,
+        settings: Settings,
+        mcp_config: PathBuf,
+        mcp_entry: McpEntry,
+        permit: crate::execution::ProjectPermit,
+        note: Option<String>,
+    ) -> AppResult<String> {
+        let mut guard = self.active.lock().await;
+        let canonical =
+            std::fs::canonicalize(&project).unwrap_or_else(|_| project.clone());
+        let persisted = match guard.as_ref() {
+            Some(active) if active.shared.project == project => {
+                Some(active.shared.state.lock().await.clone())
+            }
+            _ => load_latest_state(&canonical),
+        };
+        let mut persisted = persisted
+            .ok_or_else(|| AppError::Other("There is no Auto mode run to resume.".into()))?;
+        if persisted.status != LoopStatus::Paused {
+            return Err(AppError::Other(
+                "That Auto mode run is not paused.".into(),
+            ));
+        }
+        let mut cursor = persisted.cursor.take().unwrap_or_default();
+        // A note written on the Resume form is guidance for the very next turn.
+        if let Some(note) = note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) {
+            persisted.feedback.push(LoopFeedback {
+                id: nanoid::nanoid!(),
+                text: note.clone(),
+                created_at_ms: now_ms(),
+                applied_at_iteration: Some(cursor.next_iteration),
+            });
+            cursor.carried_feedback.push(note);
+        }
+
+        let loop_id = persisted.loop_id.clone();
+        let dir = project.join(".godot-vibe").join("loop").join(&loop_id);
+        std::fs::create_dir_all(&dir)?;
+        let goal = persisted.goal.clone();
+        let options = persisted.options.clone();
+        persisted.status = LoopStatus::Running;
+        persisted.current_run_id = None;
+
+        let shared = Arc::new(LoopShared {
+            loop_id: loop_id.clone(),
+            project,
+            dir,
+            stop: AtomicBool::new(false),
+            pause: AtomicBool::new(false),
+            child: AsyncMutex::new(None),
+            state: AsyncMutex::new(persisted),
+        });
+        persist_and_emit(&app, &shared).await;
+
+        let driver = Driver {
+            app,
+            shared: shared.clone(),
+            settings,
+            mcp_config,
+            mcp_entry,
+            goal,
+            options,
+            _permit: permit,
+        };
+        let task = tokio::spawn(async move { driver.run(Some(cursor)).await });
         *guard = Some(ActiveLoop {
             shared,
             _task: task,
@@ -343,7 +500,8 @@ struct Driver {
 }
 
 impl Driver {
-    async fn run(self) {
+    /// `cursor` is `None` for a fresh run and `Some` when resuming a paused one.
+    async fn run(self, cursor: Option<LoopCursor>) {
         // Codex reports tokens, not dollars, so `cost_usd` is never populated and
         // the running total would sit at $0 forever — a budget cap that silently
         // never fires. Disable it outright and say so; `max_iterations` is then
@@ -363,17 +521,38 @@ impl Driver {
         let max_iter = self.options.max_iterations;
         let qa_enabled = self.options.qa_every > 0;
 
-        let mut strikes: u32 = 0;
-        let mut prev_summary = String::new();
-        let mut qa_feedback: Option<String> = None;
-        let mut user_feedback: Vec<String> = Vec::new();
-        let mut builder_session: Option<String> = None;
-        let mut total_cost = 0.0f64;
-        let mut i: u32 = 0;
+        let resuming = cursor.is_some();
+        let resumed = cursor.unwrap_or_default();
+        let mut strikes: u32 = resumed.strikes;
+        let mut prev_summary = resumed.prev_summary;
+        let mut qa_feedback: Option<String> = resumed.qa_feedback;
+        let mut user_feedback: Vec<String> = resumed.carried_feedback;
+        let mut builder_session: Option<String> = resumed.builder_session_id;
+        // Carries the spend of the steps already banked before a pause.
+        let mut total_cost = self.shared.state.lock().await.total_cost_usd;
+        let mut i: u32 = resumed.next_iteration;
+        if resuming {
+            // Feedback typed while parked belongs to the turn about to start.
+            user_feedback.extend(self.take_pending_feedback(i).await);
+        }
 
         loop {
             if self.stopped() {
                 self.finish(LoopStatus::Stopped).await;
+                return;
+            }
+            // The only place a pause takes effect: every local below is settled
+            // for the turn that has not started yet, so the cursor is exact.
+            if self.paused() {
+                self.park(LoopCursor {
+                    next_iteration: i,
+                    strikes,
+                    prev_summary: prev_summary.clone(),
+                    qa_feedback: qa_feedback.clone(),
+                    carried_feedback: user_feedback.clone(),
+                    builder_session_id: builder_session.clone(),
+                })
+                .await;
                 return;
             }
 
@@ -533,6 +712,10 @@ impl Driver {
 
     fn stopped(&self) -> bool {
         self.shared.stop.load(Ordering::SeqCst)
+    }
+
+    fn paused(&self) -> bool {
+        self.shared.pause.load(Ordering::SeqCst)
     }
 
     /// The agent backend this loop was started with. Snapshotted in `settings`
@@ -723,6 +906,20 @@ impl Driver {
             let mut st = self.shared.state.lock().await;
             st.status = status;
             st.current_run_id = None;
+            // A finished run is not resumable; a stale cursor would offer it.
+            st.cursor = None;
+        }
+        persist_and_emit(&self.app, &self.shared).await;
+    }
+
+    /// Park at a step boundary. Returning from `run` drops the project permit,
+    /// so chat is usable again while the run waits.
+    async fn park(&self, cursor: LoopCursor) {
+        {
+            let mut st = self.shared.state.lock().await;
+            st.status = LoopStatus::Paused;
+            st.current_run_id = None;
+            st.cursor = Some(cursor);
         }
         persist_and_emit(&self.app, &self.shared).await;
     }
@@ -1013,6 +1210,7 @@ mod tests {
             feedback: vec![],
             failure: None,
             current_run_id: Some("loop:1:0:builder".into()),
+            cursor: None,
         }
     }
 
@@ -1079,6 +1277,62 @@ mod tests {
         // No rules selected leaves the prompt exactly as it was.
         assert!(!builder_prompt(0, "make a cube", &[], "", None, &[], None, None)
             .contains("House rules"));
+    }
+
+    #[test]
+    fn paused_frees_the_project_while_pausing_still_holds_it() {
+        // `is_active` gates chat and "busy" — a run mid-pause still owns the
+        // project, a parked one must not.
+        assert!(LoopStatus::Pausing.is_active());
+        assert!(!LoopStatus::Paused.is_active());
+        assert!(LoopStatus::Running.is_active());
+    }
+
+    #[test]
+    fn a_paused_run_survives_a_restart_with_its_cursor() {
+        let mut state = test_state();
+        state.status = LoopStatus::Paused;
+        state.current_run_id = None;
+        state.cursor = Some(LoopCursor {
+            next_iteration: 3,
+            strikes: 1,
+            prev_summary: "added the ramp".into(),
+            qa_feedback: Some("the ramp is unreachable".into()),
+            carried_feedback: vec!["make it wider".into()],
+            builder_session_id: Some("sess-42".into()),
+        });
+        let json = serde_json::to_vec(&state).expect("serialize");
+        let back: LoopState = serde_json::from_slice(&json).expect("deserialize");
+        assert_eq!(back.status, LoopStatus::Paused);
+        let cursor = back.cursor.expect("cursor survives the round trip");
+        assert_eq!(cursor.next_iteration, 3);
+        assert_eq!(cursor.strikes, 1);
+        assert_eq!(cursor.builder_session_id.as_deref(), Some("sess-42"));
+        assert_eq!(cursor.carried_feedback, vec!["make it wider".to_string()]);
+        assert_eq!(cursor.qa_feedback.as_deref(), Some("the ramp is unreachable"));
+    }
+
+    #[test]
+    fn a_state_written_before_pause_existed_still_loads() {
+        let legacy = serde_json::json!({
+            "loopId": "loop",
+            "goal": "make a cube",
+            "referenceImages": [],
+            "status": "running",
+            "iterations": [],
+            "totalCostUsd": 0.0,
+            "options": {
+                "maxIterations": 10,
+                "maxCostUsd": 5.0,
+                "qaEvery": 1,
+                "referenceImages": [],
+                "agent": {"backend": "claude", "model": null, "effort": null}
+            },
+            "warnings": [],
+            "currentRunId": null
+        });
+        let state: LoopState = serde_json::from_value(legacy).expect("legacy state loads");
+        assert!(state.cursor.is_none());
     }
 
     #[test]

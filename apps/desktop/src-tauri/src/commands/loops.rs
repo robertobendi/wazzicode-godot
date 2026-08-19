@@ -49,6 +49,43 @@ pub async fn loop_start(
         .await
 }
 
+/// Pause the active loop at the next step boundary. The turn already running
+/// is left to finish and checkpoint, so nothing is thrown away.
+#[tauri::command]
+pub async fn loop_pause(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    state.loops.pause(&app).await
+}
+
+/// Resume a paused loop. A pause that hasn't landed yet is simply cancelled;
+/// a parked one is relaunched from its cursor with the same builder session.
+#[tauri::command]
+pub async fn loop_resume(
+    app: AppHandle,
+    project: String,
+    note: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    let project_path = PathBuf::from(&project);
+    crate::commands::project::ensure_project_access(&project_path)?;
+    if state.loops.cancel_pause(&app).await {
+        return Ok("resumed".into());
+    }
+    if state.sessions.has_run_for(&project_path) {
+        return Err(AppError::Other("busy: a chat is running".into()));
+    }
+    let permit = state
+        .executions
+        .try_acquire(&project_path)
+        .ok_or_else(|| AppError::Other("busy: another task is running".into()))?;
+    let mcp_config = crate::mcpconfig::ensure_mcp_config(&app, &state.config_dir, &project_path)?;
+    let mcp_entry = crate::mcpconfig::mcp_entry(&app, &project_path);
+    let settings = state.settings.read().await.clone();
+    state
+        .loops
+        .resume(app, project_path, settings, mcp_config, mcp_entry, permit, note)
+        .await
+}
+
 /// Stop the active loop immediately (kills the current builder/QA turn).
 #[tauri::command]
 pub async fn loop_stop(state: State<'_, AppState>) -> AppResult<()> {

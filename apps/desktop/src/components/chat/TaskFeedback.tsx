@@ -10,7 +10,8 @@ export default function TaskFeedback() {
   const backend = useChatStore((s) => s.session.backend ?? "claude");
   const queuedTasks = useChatStore((s) => s.queuedTasks);
   const queuePauseReason = useChatStore((s) => s.queuePauseReason);
-  const runNextQueued = useChatStore((s) => s.runNextQueued);
+  const resumeQueue = useChatStore((s) => s.resumeQueue);
+  const pauseQueue = useChatStore((s) => s.pauseQueue);
   const removeQueued = useChatStore((s) => s.removeQueued);
   const clearQueue = useChatStore((s) => s.clearQueue);
 
@@ -96,12 +97,31 @@ export default function TaskFeedback() {
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              {queuePauseReason && !running && (
+              {queuePauseReason ? (
                 <button
-                  onClick={() => void runNextQueued()}
+                  onClick={() => void resumeQueue()}
+                  title={
+                    running
+                      ? "Let the queue continue once this task finishes"
+                      : "Start the next task now"
+                  }
                   className="rounded-md bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-accent-hover"
                 >
                   Resume
+                </button>
+              ) : (
+                <button
+                  onClick={() =>
+                    pauseQueue(
+                      running
+                        ? "Paused. This task finishes, then the queue holds."
+                        : "Paused. Nothing starts until you resume.",
+                    )
+                  }
+                  title="Hold the queue without losing it"
+                  className="rounded-md border border-white/10 px-2.5 py-1.5 text-[11px] font-medium text-fg-muted hover:bg-white/[0.06] hover:text-fg"
+                >
+                  Pause
                 </button>
               )}
               <button

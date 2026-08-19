@@ -319,3 +319,49 @@ describe("chat run snapshots", () => {
     expect(activity?.endedAt).toBeTypeOf("number");
   });
 });
+
+describe("queue pause", () => {
+  beforeEach(() => {
+    projectNumber += 1;
+    mocks.chatSend.mockReset().mockResolvedValue("run-1");
+    mocks.chatCancel.mockReset();
+    mocks.removeStaged.mockReset().mockResolvedValue(undefined);
+    useSettingsStore.getState().setSettings(settings);
+    useChatStore.getState().setProject(`/project-${projectNumber}`);
+  });
+
+  it("holds the queue until it is explicitly resumed", async () => {
+    const store = useChatStore.getState();
+    store.enqueue("first");
+    store.enqueue("second");
+    store.pauseQueue("Paused.");
+
+    // The terminal-event path calls this; a paused queue must not advance.
+    expect(await useChatStore.getState().runNextQueued()).toBe(false);
+    expect(mocks.chatSend).not.toHaveBeenCalled();
+    expect(useChatStore.getState().queuedTasks).toHaveLength(2);
+
+    await useChatStore.getState().resumeQueue();
+    expect(mocks.chatSend).toHaveBeenCalledTimes(1);
+    expect(useChatStore.getState().queuePauseReason).toBeNull();
+    expect(useChatStore.getState().queuedTasks).toHaveLength(1);
+  });
+
+  it("pausing while a task runs leaves that task alone", async () => {
+    await useChatStore.getState().send("running one");
+    useChatStore.getState().enqueue("queued one");
+    useChatStore.getState().pauseQueue("Paused.");
+
+    expect(useChatStore.getState().running).toBe(true);
+    expect(mocks.chatCancel).not.toHaveBeenCalled();
+    // Resuming mid-run only lifts the hold; the terminal event drains it later.
+    await useChatStore.getState().resumeQueue();
+    expect(useChatStore.getState().queuedTasks).toHaveLength(1);
+    expect(useChatStore.getState().queuePauseReason).toBeNull();
+  });
+
+  it("does not pause an empty queue", () => {
+    useChatStore.getState().pauseQueue("Paused.");
+    expect(useChatStore.getState().queuePauseReason).toBeNull();
+  });
+});
