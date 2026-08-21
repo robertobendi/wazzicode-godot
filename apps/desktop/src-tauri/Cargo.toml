@@ -1,6 +1,6 @@
 [package]
 name = "foundry-godot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Foundry for Godot — scene-aware AI work for Godot projects"
 authors = ["Roberto Bendinelli"]
 edition = "2021"
