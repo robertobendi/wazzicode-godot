@@ -7,6 +7,7 @@ import { resolveProjectPath } from "@gvibe/safety";
 import type { ToolDef } from "../registry.js";
 import { reportProgress } from "../progress.js";
 import { err, ok } from "./_helpers.js";
+import { resolveGodotBinary } from "../godotBinary.js";
 
 const MAX_CAPTURED_BYTES = 96 * 1024;
 const HEAD_BYTES = 16 * 1024;
@@ -14,7 +15,7 @@ const TAIL_BYTES = MAX_CAPTURED_BYTES - HEAD_BYTES;
 const RUNNER_PATH = "res://tests/run_tests.gd";
 
 const TestRunShape = {
-  godotBinary: z.string().optional().describe("Godot executable; defaults to GODOT_BIN or godot."),
+  godotBinary: z.string().optional().describe("Godot executable. Defaults to GODOT_BIN, then PATH, then the standard install location for this platform (e.g. /Applications/Godot.app on macOS)."),
   timeoutMs: z.number().int().min(1_000).max(300_000).optional(),
 };
 
@@ -36,7 +37,7 @@ export const godotTestRun: ToolDef<typeof TestRunShape, TestRunResult> = {
       }
 
       const runnerPath = `res://${runner.relative.split(path.sep).join("/")}`;
-      const binary = args.godotBinary ?? process.env.GODOT_BIN ?? "godot";
+      const binary = resolveGodotBinary(args.godotBinary);
       const timeoutMs = args.timeoutMs ?? 120_000;
       const commandArgs = ["--headless", "--path", projectPath, "--script", runner.absolute];
       const startedAt = Date.now();

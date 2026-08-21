@@ -1,5 +1,5 @@
 export const PRODUCT_NAME = "Godot Vibe OS";
-export const PRODUCT_VERSION = "0.1.0";
+export const PRODUCT_VERSION = "0.2.0";
 export const PROTOCOL_VERSION = "1.1";
 export const DEFAULT_BRIDGE_HOST = "127.0.0.1";
 export const DEFAULT_BRIDGE_PORT = 38588;

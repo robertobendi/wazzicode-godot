@@ -211,3 +211,4 @@ export {
 export { SERVER_INSTRUCTIONS, MAX_INSTRUCTION_BYTES, composeInstructions } from "./instructions.js";
 export { createProgressReporter, reportProgress } from "./progress.js";
 export { createWriteConfirmer } from "./confirm.js";
+export { resolveGodotBinary } from "./godotBinary.js";

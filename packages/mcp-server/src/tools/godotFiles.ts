@@ -8,6 +8,7 @@ import { resolveProjectPath } from "@gvibe/safety";
 import type { ToolDef } from "../registry.js";
 import { reportProgress } from "../progress.js";
 import { err, ok, timed } from "./_helpers.js";
+import { resolveGodotBinary } from "../godotBinary.js";
 
 const TEXT_EXTENSIONS = new Set([".gd", ".gdshader", ".tscn", ".tres", ".cfg", ".json", ".md", ".txt", ".cs"]);
 const SCRIPT_EXTENSIONS = new Set([".gd", ".gdshader", ".cs"]);
@@ -137,14 +138,14 @@ export const godotApplyTextEdits: ToolDef<typeof EditShape, ScriptEditResult> = 
   },
 };
 
-const VerifyShape = { godotBinary: z.string().optional().describe("Godot executable; defaults to godot."), timeoutMs: z.number().int().min(1_000).max(300_000).optional() };
+const VerifyShape = { godotBinary: z.string().optional().describe("Godot executable. Defaults to GODOT_BIN, then PATH, then the standard install location for this platform (e.g. /Applications/Godot.app on macOS)."), timeoutMs: z.number().int().min(1_000).max(300_000).optional() };
 export const godotVerify: ToolDef<typeof VerifyShape, VerifyResult> = {
   name: "godot_verify",
   description: "Runs a real headless Godot import gate, then --check-only on every project GDScript. It reports project tests and any C#/.NET compilation it did not perform as unverified.",
   requires: ["filesystem"],
   inputShape: VerifyShape,
   async run(args, ctx) {
-    const binary = args.godotBinary ?? process.env.GODOT_BIN ?? "godot";
+    const binary = resolveGodotBinary(args.godotBinary);
     const timeout = args.timeoutMs ?? 120_000;
     const projectPath = path.resolve(ctx.projectPath);
     const { result, durationMs } = await timed(async () => {

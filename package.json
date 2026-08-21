@@ -1,7 +1,7 @@
 {
   "name": "godot-vibe-os",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Godot Vibe OS — a live Godot editor operating layer for AI-assisted game development.",
   "engines": {
