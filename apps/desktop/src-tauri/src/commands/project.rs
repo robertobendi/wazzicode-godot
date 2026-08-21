@@ -5,7 +5,8 @@ use crate::state::AppState;
 use crate::store::settings::{save, Settings};
 use serde::Serialize;
 use std::path::{Component, Path, PathBuf};
-use tauri::State;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, State};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,8 +68,18 @@ pub fn inspect_project(path: String) -> ProjectInfo {
 }
 
 #[tauri::command]
-pub async fn set_current_project(path: String, state: State<'_, AppState>) -> AppResult<Settings> {
+pub async fn set_current_project(
+    app: AppHandle,
+    path: String,
+    state: State<'_, AppState>,
+) -> AppResult<Settings> {
     ensure_project_access(Path::new(&path))?;
+
+    // Opening a project is the moment to make sure its install still matches this build: a project
+    // set up against an older release carries an older editor addon and older agent instructions,
+    // and both change behaviour silently. Fire-and-forget so opening never blocks or fails on it;
+    // the UI hears about it only when something actually changed.
+    spawn_project_self_heal(app, path.clone());
 
     let mut settings = state.settings.write().await;
     settings.current_project = Some(path.clone());
@@ -317,5 +328,137 @@ config/features=PackedStringArray("4.4", "GL Compatibility")
         assert!(!inspected.has_project_file);
         assert_ne!(inspected.name, "Outside Secret");
         let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+/// Payload of the `project:self-heal` event: what opening this project had to repair.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfHealReport {
+    pub project: String,
+    /// Human-readable summary of each repair, empty when the install was already current.
+    pub repaired: Vec<String>,
+}
+
+/// Run `gvibe update` for one project in the background and announce anything it fixed.
+///
+/// Deliberately silent on failure: a CLI that will not resolve, a project mid-move, or a
+/// permission problem must not stop the user opening their project. Whatever it could not fix is
+/// still reported by `gvibe doctor`.
+fn spawn_project_self_heal(app: AppHandle, project: String) {
+    tauri::async_runtime::spawn(async move {
+        let (cmd, prefix) = crate::mcpconfig::resolve_gvibe(&app);
+        let args = vec![
+            "update".to_string(),
+            "--project".to_string(),
+            project.clone(),
+            "--json".to_string(),
+        ];
+        let command = match crate::mcpconfig::resolved_gvibe_command(&cmd, &prefix, &args) {
+            Ok(command) => command,
+            Err(error) => {
+                log::warn!("project self-heal could not start: {error}");
+                return;
+            }
+        };
+        let output = tokio::task::spawn_blocking(move || {
+            crate::proc::output_with_timeout(command, Duration::from_secs(120))
+        })
+        .await;
+        let stdout = match output {
+            Ok(Ok(out)) => String::from_utf8_lossy(&out.stdout).to_string(),
+            Ok(Err(error)) => {
+                log::warn!("project self-heal failed: {error}");
+                return;
+            }
+            Err(error) => {
+                log::warn!("project self-heal task failed: {error}");
+                return;
+            }
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(stdout.trim()) else {
+            return;
+        };
+        let repaired = summarize_self_heal(&value);
+        if repaired.is_empty() {
+            return;
+        }
+        log::info!("project self-heal repaired: {}", repaired.join("; "));
+        let _ = app.emit("project:self-heal", SelfHealReport { project, repaired });
+    });
+}
+
+/// Turn `gvibe update --json` into the one-line-per-repair list the UI shows. Pure, so the
+/// wording is testable without spawning anything.
+pub fn summarize_self_heal(value: &serde_json::Value) -> Vec<String> {
+    let mut repaired = Vec::new();
+    let Some(projects) = value.get("projects").and_then(|p| p.as_array()) else {
+        return repaired;
+    };
+    for project in projects {
+        if project.pointer("/addon/action").and_then(|a| a.as_str()) == Some("updated") {
+            let from = project
+                .pointer("/addon/from")
+                .and_then(|v| v.as_str())
+                .unwrap_or("an older build");
+            let to = project
+                .pointer("/addon/to")
+                .and_then(|v| v.as_str())
+                .unwrap_or("this build");
+            repaired.push(format!("Updated the Godot addon ({from} → {to})"));
+        }
+        match project
+            .pointer("/instructions/action")
+            .and_then(|a| a.as_str())
+        {
+            Some("updated") | Some("appended") => {
+                repaired.push("Refreshed the project's agent instructions".to_string())
+            }
+            Some("created") => {
+                repaired.push("Wrote the project's agent instructions".to_string())
+            }
+            _ => {}
+        }
+        if project.pointer("/mcpConfig/action").and_then(|a| a.as_str()) == Some("stale") {
+            repaired.push("The agent connection needs repair — run `gvibe mcp-config --write`".to_string());
+        }
+    }
+    repaired
+}
+
+#[cfg(test)]
+mod self_heal_tests {
+    use super::*;
+
+    #[test]
+    fn summary_names_each_repair_and_stays_silent_when_nothing_changed() {
+        let nothing = serde_json::json!({
+            "projects": [{
+                "addon": { "action": "current", "from": "0.1.0" },
+                "instructions": { "action": "current" },
+                "mcpConfig": { "action": "current" }
+            }]
+        });
+        // An install that was already current must not toast at the user for opening a project.
+        assert!(summarize_self_heal(&nothing).is_empty());
+
+        let repaired = serde_json::json!({
+            "projects": [{
+                "addon": { "action": "updated", "from": "0.0.9", "to": "0.1.0" },
+                "instructions": { "action": "updated" },
+                "mcpConfig": { "action": "stale" }
+            }]
+        });
+        let lines = summarize_self_heal(&repaired);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("0.0.9 → 0.1.0"));
+        assert!(lines[1].contains("agent instructions"));
+        assert!(lines[2].contains("gvibe mcp-config"));
+    }
+
+    #[test]
+    fn summary_tolerates_output_it_does_not_recognise() {
+        assert!(summarize_self_heal(&serde_json::json!({})).is_empty());
+        assert!(summarize_self_heal(&serde_json::json!({ "projects": "nope" })).is_empty());
     }
 }

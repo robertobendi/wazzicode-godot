@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ChatMessage } from "@/types/chat";
+import CopyButton from "./CopyButton";
 import { formatTokens } from "@/lib/formatTokens";
 import ToolActivityChip from "./ToolActivityChip";
 import AttachmentChip from "./AttachmentChip";
@@ -18,10 +19,16 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
 
   if (message.role === "user") {
     return (
-      <div className="flex flex-col items-end gap-1.5">
+      <div className="group flex flex-col items-end gap-1.5">
         {message.text && (
-          <div className="user-message max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md px-4 py-2.5 text-sm text-fg">
-            {message.text}
+          <div className="flex max-w-[80%] items-start gap-1.5">
+            {/* Left of the bubble so it never overlaps the text, and only on hover. */}
+            <CopyButton text={message.text} className="mt-1.5" />
+            {/* `selectable` matters: the shell sets `user-select: none` on body for app feel,
+                so without it your own messages cannot even be selected, let alone copied. */}
+            <div className="user-message selectable whitespace-pre-wrap rounded-2xl rounded-br-md px-4 py-2.5 text-sm text-fg">
+              {message.text}
+            </div>
           </div>
         )}
         {message.attachments.length > 0 && (
@@ -36,7 +43,7 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
   }
 
   return (
-    <div className="flex justify-start">
+    <div className="group flex justify-start">
       <div className="w-full max-w-[65ch] space-y-2">
         {message.activities.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
@@ -51,6 +58,10 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
             {message.text}
             {message.streaming && (
               <span className="ml-0.5 inline-block h-4 w-[2px] animate-caret bg-accent align-text-bottom" />
+            )}
+            {/* Offered once the answer has settled — copying a half-streamed reply is a trap. */}
+            {!message.streaming && (
+              <CopyButton text={message.text} className="ml-1.5 align-middle" />
             )}
           </div>
         )}

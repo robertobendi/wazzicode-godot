@@ -286,15 +286,16 @@ export default function Composer() {
               id="agent-tuning"
               className="glass-card absolute inset-x-0 bottom-full z-30 mb-2 rounded-2xl border p-4"
             >
-              <AgentRunControls
-                value={runOptions}
-                onChange={setRunOptions}
-                disabled={queueing || !!sessionOptions}
-              />
+              <AgentRunControls value={runOptions} onChange={setRunOptions} />
               {sessionOptions && (
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-dim">
-                  These choices stay fixed for this conversation. Start a new
-                  chat to use different ones.
+                  {running
+                    ? "Applies to your next message — the task that's running keeps the model it started with."
+                    : "Applies to your next message."}
+                  {" "}
+                  This conversation stays on{" "}
+                  {BACKENDS[sessionOptions.backend].label}; start a new chat to
+                  switch agent.
                 </p>
               )}
             </div>

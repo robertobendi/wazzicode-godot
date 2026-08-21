@@ -48,8 +48,10 @@ export async function runInit(options: GlobalOptions): Promise<CommandResult> {
   return options.json ? { exitCode: 0, stdout: JSON.stringify({ project: options.project, actions }, null, 2) + "\n" } : { exitCode: 0, stdout: ["Godot Vibe OS — init", ...actions].join("\n") + "\n" };
 }
 
-function agentBlock(): string { return [BEGIN, "## Godot Vibe OS", "", "Use the `godot_*` MCP tools for live editor state. Do not guess NodePaths or Godot APIs, and do not hand-edit `.tscn`/`.tres` when a dedicated editor tool exists.", "", "- Start with `godot_orient({ task: \"<current request>\" })`.", "- Resolve ‘this’ or ‘selected’ with `godot_inspect_selected`.", "- Verify unfamiliar engine APIs with `godot_reflect` before writing code.", "- Read scripts first and pass their sha256 to `godot_apply_text_edits`.", "- After text changes, run `godot_refresh_filesystem`, then `godot_verify`. Import/syntax checks are not unit tests; run `godot_test_run` when the project has a test runner.", "- For runtime bugs, use `godot_debug_run`; it only stops play sessions it starts and a clean verdict covers only its bounded observation window.", "- Scene writes use editor UndoRedo; file writes are snapshotted and action-logged under `.godot-vibe/`.", "", "Diagnose setup with `gvibe doctor --project=.`.", END].join("\n"); }
-async function upsert(file: string, block: string): Promise<"created" | "updated" | "appended"> { let current = ""; try { current = await fs.readFile(file, "utf8"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; await fs.writeFile(file, block + "\n", "utf8"); return "created"; } const start = current.indexOf(BEGIN); const end = current.indexOf(END); if (start >= 0 && end >= start) { await fs.writeFile(file, current.slice(0, start) + block + current.slice(end + END.length), "utf8"); return "updated"; } await fs.writeFile(file, current.replace(/\s*$/, "\n\n") + block + "\n", "utf8"); return "appended"; }
+export function agentBlock(): string { return [BEGIN, "## Godot Vibe OS", "", "Use the `godot_*` MCP tools for live editor state. Do not guess NodePaths or Godot APIs, and do not hand-edit `.tscn`/`.tres` when a dedicated editor tool exists.", "", "- Start with `godot_orient({ task: \"<current request>\" })`. It validates and refreshes the generated project map in `.godot-vibe/brain/` and returns the parts relevant to your task — answer from that map (and `godot_query_project_brain` for follow-ups) before scanning the project by hand.", "- Resolve ‘this’ or ‘selected’ with `godot_inspect_selected`.", "- Verify unfamiliar engine APIs with `godot_reflect` before writing code.", "- Read scripts first and pass their sha256 to `godot_apply_text_edits`.", "- After text changes, run `godot_refresh_filesystem`, then `godot_verify`. Import/syntax checks are not unit tests; run `godot_test_run` when the project has a test runner.", "- For runtime bugs, use `godot_debug_run`; it only stops play sessions it starts and a clean verdict covers only its bounded observation window.", "- Scene writes use editor UndoRedo; file writes are snapshotted and action-logged under `.godot-vibe/`.", "", "Diagnose setup with `gvibe doctor --project=.`.", END].join("\n"); }
+export async function upsert(file: string, block: string): Promise<UpsertOutcome> { let current = ""; try { current = await fs.readFile(file, "utf8"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; await fs.writeFile(file, block + "\n", "utf8"); return "created"; } const start = current.indexOf(BEGIN); const end = current.indexOf(END); if (start >= 0 && end >= start) { const next = current.slice(0, start) + block + current.slice(end + END.length); if (next === current) return "current"; /* An unchanged block must report "current": callers (gvibe update, Studio's open-time self-heal) announce what they repaired, and "updated" on every open is noise. */ await fs.writeFile(file, next, "utf8"); return "updated"; } await fs.writeFile(file, current.replace(/\s*$/, "\n\n") + block + "\n", "utf8"); return "appended"; }
+
+export type UpsertOutcome = "created" | "updated" | "appended" | "current";
 async function upsertGitignore(file: string): Promise<"created" | "updated" | "kept"> {
   let current = "";
   try { current = await fs.readFile(file, "utf8"); } catch (error) {
@@ -65,3 +67,22 @@ async function upsertGitignore(file: string): Promise<"created" | "updated" | "k
 }
 async function exists(file: string): Promise<boolean> { return fs.access(file).then(() => true, () => false); }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+
+/**
+ * Re-render the marker-delimited block in AGENTS.md and CLAUDE.md.
+ *
+ * The block is the agent's standing brief inside the user's project, and it is written at install
+ * time — so a project set up against an older release keeps that release's rules no matter what
+ * the tools have learned since. `gvibe update` refreshes it; everything outside the markers is
+ * preserved.
+ */
+export async function refreshAgentBlocks(
+  projectPath: string
+): Promise<Array<{ file: string; action: UpsertOutcome }>> {
+  const results: Array<{ file: string; action: UpsertOutcome }> = [];
+  for (const relative of ["AGENTS.md", "CLAUDE.md"]) {
+    const { absolute } = await resolveProjectPath(projectPath, relative);
+    results.push({ file: absolute, action: await upsert(absolute, agentBlock()) });
+  }
+  return results;
+}

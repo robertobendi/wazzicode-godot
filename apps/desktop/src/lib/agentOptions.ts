@@ -83,8 +83,8 @@ interface ResolveRunOptionsInput {
   settings: Settings | null;
 }
 
-/** Existing conversations keep their original controls; new tasks use the
- * explicit composer snapshot, then fall back to the selected defaults. */
+/** New tasks use the explicit composer snapshot, then the selected defaults; an existing
+ * conversation keeps its backend but takes a newly chosen model/effort from the next message. */
 export function resolveChatRunOptions({
   sessionRunOptions,
   sessionBackend,
@@ -92,10 +92,17 @@ export function resolveChatRunOptions({
   settings,
 }: ResolveRunOptionsInput): AgentRunOptions {
   if (sessionRunOptions) {
-    return normalizeAgentRunOptions(
+    const current = normalizeAgentRunOptions(
       sessionRunOptions,
       sessionBackend ?? sessionRunOptions.backend,
     );
+    if (!requested) return current;
+    // Model and effort are per *message*: change them whenever, including while a task runs — the
+    // running turn keeps what it was handed, the next message uses the new choice. The backend is
+    // not, because a CLI session id is only meaningful to the backend that created it, so swapping
+    // mid-conversation would silently drop the conversation's context.
+    const wanted = normalizeAgentRunOptions(requested, current.backend);
+    return { backend: current.backend, model: wanted.model, effort: wanted.effort };
   }
   if (sessionBackend) return automaticRunOptions(sessionBackend);
   if (requested) return normalizeAgentRunOptions(requested);

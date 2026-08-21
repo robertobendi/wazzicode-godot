@@ -6,6 +6,7 @@ import { useUiStore } from "@/stores/useUiStore";
 import { useSessionsStore } from "@/stores/useSessionsStore";
 import { useRevertStore } from "@/stores/useRevertStore";
 import { useBridgeStatus } from "@/hooks/useBridgeStatus";
+import { useProjectSelfHeal } from "@/hooks/useProjectSelfHeal";
 import { useDebugCapture } from "@/hooks/useDebugCapture";
 import { useLoopEvents } from "@/hooks/useLoopEvents";
 import { useCheckpointEvents } from "@/hooks/useCheckpointEvents";
@@ -126,6 +127,8 @@ export default function App() {
   // Poll the Godot bridge whenever a project is open; capture raw debug events;
   // mirror the auto-loop broadcasts (kept mounted in both modes).
   useBridgeStatus(project);
+  // Announce anything opening this project had to repair (addon, agent instructions).
+  useProjectSelfHeal();
   useAgentStream();
   useDebugCapture();
   useLoopEvents();

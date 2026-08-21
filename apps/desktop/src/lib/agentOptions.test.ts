@@ -75,7 +75,9 @@ describe("agent run options", () => {
     });
   });
 
-  it("freezes an existing conversation ahead of task and global defaults", () => {
+  it("keeps an existing conversation on its backend even when another is requested", () => {
+    // A CLI session id only means something to the backend that made it, so switching mid-thread
+    // would silently drop the conversation's context.
     expect(
       resolveChatRunOptions({
         sessionRunOptions: {
@@ -89,6 +91,27 @@ describe("agent run options", () => {
           model: "gpt-5.6-sol",
           effort: "low",
         },
+        settings,
+      }).backend,
+    ).toBe("claude");
+  });
+
+  it("lets a new model/effort take effect on the next message of an existing conversation", () => {
+    expect(
+      resolveChatRunOptions({
+        sessionRunOptions: { backend: "claude", model: "opus", effort: "max" },
+        sessionBackend: "claude",
+        requested: { backend: "claude", model: "sonnet", effort: "low" },
+        settings,
+      }),
+    ).toEqual({ backend: "claude", model: "sonnet", effort: "low" });
+  });
+
+  it("keeps the conversation's own choices when the composer requests nothing", () => {
+    expect(
+      resolveChatRunOptions({
+        sessionRunOptions: { backend: "claude", model: "opus", effort: "max" },
+        sessionBackend: "claude",
         settings,
       }),
     ).toEqual({ backend: "claude", model: "opus", effort: "max" });

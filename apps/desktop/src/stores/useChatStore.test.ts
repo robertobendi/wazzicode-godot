@@ -68,7 +68,7 @@ describe("chat run snapshots", () => {
     });
   });
 
-  it("keeps a loaded session's backend and controls when defaults change", async () => {
+  it("keeps a loaded session's backend but takes the newly chosen model on the next message", async () => {
     useChatStore.getState().loadSession({
       sessionId: "claude-session",
       title: "Existing",
@@ -86,12 +86,18 @@ describe("chat run snapshots", () => {
       effort: "low",
     });
 
+    // The backend is pinned (its session id would be meaningless to the other CLI), but the model
+    // and effort are per-message — that is what makes switching models mid-conversation work.
     expect(mocks.chatSend).toHaveBeenCalledWith(
       `/project-${projectNumber}`,
       "Continue",
       "claude-session",
-      { backend: "claude", model: "opus", effort: "high" },
+      { backend: "claude", model: "gpt-5.6-sol", effort: "low" },
     );
+    expect(useChatStore.getState().session.runOptions).toMatchObject({
+      backend: "claude",
+      model: "gpt-5.6-sol",
+    });
   });
 
   it("unfreezes a new conversation when the backend rejects startup", async () => {
@@ -169,7 +175,14 @@ describe("chat run snapshots", () => {
       "Second",
       "Third",
     ]);
-    expect(useChatStore.getState().queuedTasks[0].runOptions).toEqual(options);
+    // Queued work is "the next message", so its own model/effort win — the backend stays pinned
+    // to the conversation, whose CLI session id the queued run resumes.
+    const secondOptions: AgentRunOptions = {
+      backend: "codex",
+      model: "opus",
+      effort: "low",
+    };
+    expect(useChatStore.getState().queuedTasks[0].runOptions).toEqual(secondOptions);
 
     useChatStore.getState().finish("run-1", {
       sessionId: "codex-session",
@@ -186,7 +199,7 @@ describe("chat run snapshots", () => {
       `/project-${projectNumber}`,
       "Second",
       "codex-session",
-      options,
+      secondOptions,
     );
     expect(useChatStore.getState().queuedTasks.map((task) => task.prompt)).toEqual([
       "Third",
