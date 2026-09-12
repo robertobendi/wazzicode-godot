@@ -1,7 +1,7 @@
 {
   "name": "@gvibe/desktop",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "description": "Foundry for Godot — a scene-aware desktop app for AI-assisted Godot work.",
   "scripts": {
