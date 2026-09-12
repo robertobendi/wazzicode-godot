@@ -17,3 +17,21 @@ export interface SyncReport {
   steps: SyncStep[];
   summary: string;
 }
+
+/**
+ * Cheap probe behind the Synchronize button's attention state. `actionNeeded`
+ * is what turns the button rainbow; a repo with no remote is never action-needed.
+ */
+export interface SyncStatus {
+  isRepo: boolean;
+  branch: string;
+  upstream: string | null;
+  hasRemote: boolean;
+  dirty: boolean;
+  ahead: number;
+  behind: number;
+  diverged: boolean;
+  fetchOk: boolean;
+  actionNeeded: boolean;
+  summary: string;
+}

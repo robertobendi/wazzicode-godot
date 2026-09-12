@@ -282,6 +282,121 @@ fn capitalize(text: &str) -> String {
     }
 }
 
+/// Lightweight sync status behind the chat's Synchronize affordance: is there
+/// anything to commit, pull or push? `fetch` controls whether the remote is
+/// contacted (the caller throttles that); local state is always read. A repo
+/// with no remote can never be "action needed" — the button shouldn't pulse for
+/// a project that has nowhere to sync to.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    pub is_repo: bool,
+    pub branch: String,
+    pub upstream: Option<String>,
+    pub has_remote: bool,
+    pub dirty: bool,
+    pub ahead: u32,
+    pub behind: u32,
+    pub diverged: bool,
+    pub fetch_ok: bool,
+    pub action_needed: bool,
+    pub summary: String,
+}
+
+pub fn sync_status(project: &Path, fetch: bool) -> Result<SyncStatus, String> {
+    if !gitutil::is_repo(project) {
+        return Ok(SyncStatus {
+            is_repo: false,
+            branch: String::new(),
+            upstream: None,
+            has_remote: false,
+            dirty: false,
+            ahead: 0,
+            behind: 0,
+            diverged: false,
+            fetch_ok: false,
+            action_needed: false,
+            summary: "Not a git repository".into(),
+        });
+    }
+
+    let branch = local_stdout(project, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .unwrap_or_else(|_| "HEAD".into());
+    let upstream = local_stdout(
+        project,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    )
+    .ok()
+    .filter(|value| !value.is_empty() && value != "HEAD");
+    let has_remote = local_stdout(project, &["remote"])
+        .map(|remotes| !remotes.is_empty())
+        .unwrap_or(false);
+    let dirty = local_stdout(project, &["status", "--porcelain"])
+        .map(|text| !text.is_empty())
+        .unwrap_or(false);
+
+    // No remote / no upstream means there is nothing to fetch against.
+    let mut fetch_ok = !has_remote || upstream.is_none();
+    if fetch && has_remote && upstream.is_some() {
+        fetch_ok = match net(project, &["fetch", "--prune", "--quiet"]) {
+            Ok(out) => out.status.success(),
+            Err(_) => false,
+        };
+    }
+
+    let (behind, ahead) = match &upstream {
+        Some(up) => ahead_behind(project, up).unwrap_or((0, 0)),
+        None => (0, 0),
+    };
+    let diverged = ahead > 0 && behind > 0;
+    let action_needed = has_remote && (dirty || ahead > 0 || behind > 0 || upstream.is_none());
+    let summary = status_summary(has_remote, upstream.is_some(), &branch, dirty, ahead, behind);
+
+    Ok(SyncStatus {
+        is_repo: true,
+        branch,
+        upstream,
+        has_remote,
+        dirty,
+        ahead,
+        behind,
+        diverged,
+        fetch_ok,
+        action_needed,
+        summary,
+    })
+}
+
+fn status_summary(
+    has_remote: bool,
+    has_upstream: bool,
+    branch: &str,
+    dirty: bool,
+    ahead: u32,
+    behind: u32,
+) -> String {
+    if !has_remote {
+        return format!("No remote to synchronize with on {branch}.");
+    }
+    if !has_upstream {
+        return format!("{branch} has no upstream — Synchronize will publish it.");
+    }
+    if !dirty && ahead == 0 && behind == 0 {
+        return format!("Up to date on {branch}.");
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if dirty {
+        parts.push("uncommitted changes".into());
+    }
+    if ahead > 0 {
+        parts.push(format!("{ahead} to push"));
+    }
+    if behind > 0 {
+        parts.push(format!("{behind} to pull"));
+    }
+    format!("{} on {branch}.", capitalize(&parts.join(", ")))
+}
+
 /// `git rev-list --left-right --count <upstream>...HEAD` → `(behind, ahead)`.
 fn ahead_behind(project: &Path, upstream: &str) -> Result<(u32, u32), String> {
     let range = format!("{upstream}...HEAD");
@@ -426,6 +541,73 @@ mod tests {
         let dir = tmp();
         let err = synchronize(&dir, None).unwrap_err();
         assert!(err.contains("isn't a git repository"), "{err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn status_is_quiet_when_already_synced() {
+        let (work, _remote) = pair();
+        std::fs::write(work.join("a.txt"), b"one").unwrap();
+        git(&work, &["add", "-A"]);
+        git(&work, &["commit", "-m", "initial"]);
+        run(&work, &["push", "-u", "origin", "main"], proc::NETWORK_TIMEOUT, true).unwrap();
+
+        let status = sync_status(&work, true).unwrap();
+        assert!(status.is_repo && status.has_remote);
+        assert!(!status.dirty);
+        assert_eq!((status.ahead, status.behind), (0, 0));
+        assert!(!status.action_needed, "{}", status.summary);
+        assert!(status.summary.contains("Up to date"), "{}", status.summary);
+        std::fs::remove_dir_all(work.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn status_flags_local_and_remote_drift() {
+        let (work, remote) = pair();
+        std::fs::write(work.join("a.txt"), b"one").unwrap();
+        git(&work, &["add", "-A"]);
+        git(&work, &["commit", "-m", "initial"]);
+        run(&work, &["push", "-u", "origin", "main"], proc::NETWORK_TIMEOUT, true).unwrap();
+
+        // An uncommitted edit is enough to light the button up.
+        std::fs::write(work.join("a.txt"), b"two").unwrap();
+        let dirty = sync_status(&work, false).unwrap();
+        assert!(dirty.dirty && dirty.action_needed);
+
+        // A local commit becomes "1 to push".
+        git(&work, &["add", "-A"]);
+        git(&work, &["commit", "-m", "local"]);
+        let ahead = sync_status(&work, false).unwrap();
+        assert_eq!(ahead.ahead, 1);
+        assert!(!ahead.dirty && ahead.action_needed);
+
+        // A remote commit is invisible until we fetch, then shows as "to pull".
+        let other = second_copy(&remote);
+        std::fs::write(other.join("remote.txt"), b"remote").unwrap();
+        git(&other, &["add", "-A"]);
+        git(&other, &["commit", "-m", "remote"]);
+        run(&other, &["push"], proc::NETWORK_TIMEOUT, true).unwrap();
+
+        let behind = sync_status(&work, true).unwrap();
+        assert_eq!(behind.behind, 1);
+        assert!(behind.diverged);
+        assert!(behind.action_needed);
+        std::fs::remove_dir_all(work.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn status_never_pulses_for_a_repo_without_a_remote() {
+        let dir = tmp();
+        git(&dir, &["init"]);
+        git(&dir, &["config", "user.email", "test@example.com"]);
+        git(&dir, &["config", "user.name", "Test"]);
+        std::fs::write(dir.join("a.txt"), b"one").unwrap();
+        git(&dir, &["add", "-A"]);
+        git(&dir, &["commit", "-m", "initial"]);
+
+        let status = sync_status(&dir, false).unwrap();
+        assert!(status.is_repo && !status.has_remote);
+        assert!(!status.action_needed, "a local-only repo must stay quiet");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

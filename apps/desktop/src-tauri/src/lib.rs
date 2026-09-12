@@ -101,6 +101,7 @@ pub fn run() {
             commands::chat::chat_cancel,
             commands::chat::chat_subscribe,
             commands::git_sync::git_synchronize,
+            commands::git_sync::git_sync_status,
             commands::revert::revert_last,
             commands::sessions::save_session,
             commands::sessions::list_sessions,
