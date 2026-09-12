@@ -62,6 +62,15 @@ pub struct Settings {
     /// model-specific and can differ from Claude's accepted values.
     #[serde(default)]
     pub codex_effort: Option<String>,
+    /// Preferred OpenCode model id in `provider/model` form, or None to let
+    /// OpenCode use the provider default. Kept separate for the same reason as
+    /// the Codex fields.
+    #[serde(default)]
+    pub opencode_model: Option<String>,
+    /// Preferred OpenCode reasoning variant (`--variant`). Provider-specific and
+    /// validated by the installed CLI, so it is not a fixed set.
+    #[serde(default)]
+    pub opencode_effort: Option<String>,
     /// App-managed defaults follow catalog changes; explicit user choices do not.
     #[serde(default)]
     pub model_follows_catalog: bool,
@@ -104,6 +113,7 @@ impl Settings {
         let raw = match backend {
             Backend::Claude => self.model.as_deref(),
             Backend::Codex => self.codex_model.as_deref(),
+            Backend::Opencode => self.opencode_model.as_deref(),
         };
         raw.filter(|m| !m.trim().is_empty())
     }
@@ -112,6 +122,7 @@ impl Settings {
         let raw = match backend {
             Backend::Claude => self.effort.as_deref(),
             Backend::Codex => self.codex_effort.as_deref(),
+            Backend::Opencode => self.opencode_effort.as_deref(),
         };
         raw.map(str::trim).filter(|v| !v.is_empty())
     }
@@ -128,6 +139,8 @@ impl Default for Settings {
             codex_model: Some(DEFAULT_CODEX_MODEL.into()),
             effort: Some(DEFAULT_CLAUDE_EFFORT.into()),
             codex_effort: Some(DEFAULT_CODEX_EFFORT.into()),
+            opencode_model: None,
+            opencode_effort: None,
             model_follows_catalog: true,
             effort_follows_model: true,
             codex_model_follows_catalog: true,
@@ -369,6 +382,27 @@ mod tests {
         };
         assert_eq!(s.effort_for(Backend::Claude), Some("high"));
         assert_eq!(s.effort_for(Backend::Codex), None);
+    }
+
+    #[test]
+    fn opencode_model_and_effort_are_per_backend_and_ignore_blanks() {
+        let s = Settings {
+            opencode_model: Some("deepseek/deepseek-v4-pro".into()),
+            opencode_effort: Some("high".into()),
+            ..Settings::default()
+        };
+        assert_eq!(s.model_for(Backend::Opencode), Some("deepseek/deepseek-v4-pro"));
+        assert_eq!(s.effort_for(Backend::Opencode), Some("high"));
+        // A Claude default must not leak into an OpenCode run.
+        assert_eq!(s.model_for(Backend::Claude), Some("opus"));
+
+        let blank = Settings {
+            opencode_model: Some("  ".into()),
+            opencode_effort: Some(" ".into()),
+            ..Settings::default()
+        };
+        assert_eq!(blank.model_for(Backend::Opencode), None);
+        assert_eq!(blank.effort_for(Backend::Opencode), None);
     }
 
     #[test]

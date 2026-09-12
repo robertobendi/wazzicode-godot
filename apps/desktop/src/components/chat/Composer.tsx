@@ -13,6 +13,7 @@ import { runOptionsFromSettings } from "@/lib/agentOptions";
 import { runOptionsSummary } from "@/lib/modelCatalog";
 import { api } from "@/api";
 import AttachmentChip from "./AttachmentChip";
+import SynchronizeButton from "./SynchronizeButton";
 import AgentRunControls from "@/components/agent/AgentRunControls";
 import { MicIcon } from "../shell/icons";
 
@@ -63,8 +64,10 @@ export default function Composer() {
     settings?.agentBackend,
     settings?.model,
     settings?.codexModel,
+    settings?.opencodeModel,
     settings?.effort,
     settings?.codexEffort,
+    settings?.opencodeEffort,
   ]);
 
   useEffect(() => {
@@ -256,6 +259,7 @@ export default function Composer() {
             </button>
 
             <div className="flex shrink-0 items-center gap-2">
+              <SynchronizeButton />
               {dictation.state !== "unsupported" && !loopRunning && (
                 <MicButton dictation={dictation} />
               )}

@@ -26,6 +26,7 @@
 
 import type { ToolActivity } from "@/types/chat";
 import { isCodexEvent, reduceCodex } from "./codexStream";
+import { isOpenCodeEvent, reduceOpenCode } from "./opencodeStream";
 import { toolLabel } from "./toolLabels";
 import {
   boundMcpResultText,
@@ -42,10 +43,11 @@ export interface StreamDraft {
   toolsSeen: string[];
   /** True when the Godot Vibe OS MCP tools are available this run. */
   hasGodotTools: boolean;
-  /** Final turn cost in USD. Claude only: Codex reports tokens, not dollars, so
-   *  this stays undefined there — which is the signal NOT to render "$0.00". */
+  /** Final turn cost in USD. Claude and OpenCode report it; Codex reports
+   *  tokens, so this stays undefined there — which is the signal NOT to render
+   *  "$0.00". */
   cost?: number;
-  /** Total tokens for the turn, when the backend reports them (Codex). */
+  /** Total tokens for the turn, when the backend reports them (Codex/OpenCode). */
   tokens?: number;
   isError: boolean;
   done: boolean;
@@ -70,6 +72,7 @@ export function reduceStream(draft: StreamDraft, raw: unknown): StreamDraft {
   if (!raw || typeof raw !== "object") return draft;
   const v = raw as Raw;
 
+  if (isOpenCodeEvent(v)) return reduceOpenCode(draft, v);
   if (isCodexEvent(v.type)) return reduceCodex(draft, v);
 
   switch (v.type) {

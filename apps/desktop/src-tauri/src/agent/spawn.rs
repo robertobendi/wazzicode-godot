@@ -2,17 +2,17 @@
 //!
 //! Both the chat session manager (`session.rs`) and the auto-loop runner
 //! (`looprunner`) spawn a headless coding agent — `claude -p --output-format
-//! stream-json …` or `codex exec --json …` — stream each parsed JSON line to the
-//! webview as `agent:stream:<runId>`, and need the same cancellation semantics
-//! (kill the whole process *group*: the agent spawns the MCP server as a child,
-//! so a plain SIGKILL on the parent would orphan it). This module is that single
-//! implementation.
+//! stream-json …`, `codex exec --json …` or `opencode run --format json …` —
+//! stream each parsed JSON line to the webview as `agent:stream:<runId>`, and
+//! need the same cancellation semantics (kill the whole process *group*: the
+//! agent spawns the MCP server as a child, so a plain SIGKILL on the parent
+//! would orphan it). This module is that single implementation.
 //!
 //! The backend only changes two things here: which binary we spawn, and which
 //! JSON vocabulary we read off stdout. Everything else — process-group kill,
 //! stdin prompt, stderr tail, the [`ExitInfo`] contract — is shared, and the
 //! webview receives whichever raw lines the CLI produced (its reducer handles
-//! both shapes).
+//! all three shapes).
 //!
 //! `spawn_streaming` returns a [`ChildHandle`] (for cancellation) plus a
 //! `JoinHandle<ExitInfo>` the caller can either **await** (the loop drives
@@ -84,6 +84,11 @@ impl ChildHandle {
 /// the program name; the prompt is fed via stdin, not argv). Each parsed JSON
 /// line is emitted as `agent:stream:<run_id>`; non-JSON lines go to `debug:raw`.
 ///
+/// An OpenCode child also gets the app-managed `opencode.json` (its MCP server +
+/// read-only agent definitions) written here and handed over as
+/// `OPENCODE_CONFIG`, since `opencode run` has no `--mcp-config` flag. It is
+/// keyed by project, so concurrently prepared projects can't collide.
+///
 /// Returns the cancellation handle and the reader task's join handle, which
 /// resolves to the captured [`ExitInfo`] once the child exits.
 pub fn spawn_streaming(
@@ -94,6 +99,10 @@ pub fn spawn_streaming(
     args: Vec<String>,
     prompt: String,
 ) -> AppResult<(ChildHandle, JoinHandle<ExitInfo>)> {
+    let opencode_config = match backend {
+        Backend::Opencode => Some(crate::mcpconfig::ensure_opencode_config(&app, project)?),
+        _ => None,
+    };
     let mut child = {
         // Reuse proc's PATH augmentation + no-window handling, then override
         // the stdio it nulls (we write the prompt and read the stream).
@@ -104,6 +113,11 @@ pub fn spawn_streaming(
             .stderr(Stdio::piped())
             .current_dir(project)
             .args(&args);
+        // OpenCode has no `--config` flag; its agent + MCP definitions reach
+        // the child through this env var, merged over the user's global config.
+        if let Some(path) = &opencode_config {
+            std_cmd.env("OPENCODE_CONFIG", path);
+        }
         // Use each CLI's own stored login rather than provider keys inherited
         // from the app's launch environment. A stray key could silently switch
         // the account and billing path for a non-interactive run. The guard's
@@ -120,6 +134,7 @@ pub fn spawn_streaming(
                 crate::codexauth::isolate_child_environment(&mut std_cmd);
                 None
             }
+            Backend::Opencode => None,
         };
         // Own process group so cancellation can kill the whole tree (the agent
         // + its MCP server child) with a single group signal.
@@ -263,6 +278,7 @@ fn startup_timeout(backend: Backend) -> Option<Duration> {
     match backend {
         Backend::Claude => Some(Duration::from_secs(60)),
         Backend::Codex => None,
+        Backend::Opencode => Some(Duration::from_secs(60)),
     }
 }
 
@@ -315,6 +331,7 @@ fn capture(backend: Backend, c: &mut Captured, v: &serde_json::Value) {
     match backend {
         Backend::Claude => capture_claude(c, v),
         Backend::Codex => crate::agent::codex::capture(c, v),
+        Backend::Opencode => crate::agent::opencode::capture(c, v),
     }
 }
 
@@ -382,6 +399,10 @@ pub fn friendly_spawn_error(backend: Backend, stderr_tail: &str, exit_code: Opti
         return match backend {
             Backend::Claude => "Your connection expired — go to Settings → Re-pair account.".into(),
             Backend::Codex => "Codex isn't signed in — go to Settings → Sign in to Codex.".into(),
+            Backend::Opencode => {
+                "OpenCode has no usable provider — go to Settings → Providers to add an API key."
+                    .into()
+            }
         };
     }
     if lower.contains("enoent") || lower.contains("not found") {
@@ -416,6 +437,8 @@ mod tests {
         assert!(claude.contains("Re-pair"));
         let codex = friendly_spawn_error(Backend::Codex, "401 Unauthorized", Some(1));
         assert!(codex.contains("Sign in to Codex"));
+        let opencode = friendly_spawn_error(Backend::Opencode, "no api key", Some(1));
+        assert!(opencode.contains("Providers"));
     }
 
     #[test]
@@ -461,9 +484,13 @@ mod tests {
     }
 
     #[test]
-    fn only_claude_gets_our_own_startup_deadline() {
+    fn claude_and_opencode_get_our_own_startup_deadline_but_codex_does_not() {
         assert_eq!(
             startup_timeout(Backend::Claude),
+            Some(Duration::from_secs(60))
+        );
+        assert_eq!(
+            startup_timeout(Backend::Opencode),
             Some(Duration::from_secs(60))
         );
         assert_eq!(startup_timeout(Backend::Codex), None);

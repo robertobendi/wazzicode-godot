@@ -22,6 +22,7 @@ export interface OnboardingStatus {
   agentBackend: AgentBackend;
   claudeCli: CliStatus;
   codexCli: CliStatus;
+  opencodeCli: CliStatus;
   nodeSidecar: NodeSidecar;
   currentProject: string | null;
   projectReady: ProjectInfo | null;

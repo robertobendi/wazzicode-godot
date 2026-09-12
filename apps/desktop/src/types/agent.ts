@@ -1,5 +1,5 @@
 /** Which coding agent drives runs. Mirrors Rust's `agent::Backend`. */
-export type AgentBackend = "claude" | "codex";
+export type AgentBackend = "claude" | "codex" | "opencode";
 
 /** Backend controls captured when a chat or Auto-mode task starts. */
 export interface AgentRunOptions {

@@ -4,7 +4,7 @@
 
 import { BACKENDS, type AgentBackend } from "@/types/settings";
 
-const ORDER: AgentBackend[] = ["claude", "codex"];
+const ORDER: AgentBackend[] = ["claude", "codex", "opencode"];
 
 export default function BackendPicker({
   value,

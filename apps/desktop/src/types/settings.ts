@@ -43,6 +43,11 @@ export interface Settings {
   /** Preferred Codex reasoning effort, kept separate because its supported
    *  values are model-specific. */
   codexEffort: string | null;
+  /** Preferred OpenCode model in `provider/model` form, or null to let the CLI
+   *  (or the provider chosen under Settings → Providers) decide. */
+  opencodeModel: string | null;
+  /** Preferred OpenCode reasoning variant (`--variant`); provider-specific. */
+  opencodeEffort: string | null;
   /** Internal provenance for defaults that track installed CLI catalogs. */
   modelFollowsCatalog?: boolean;
   effortFollowsModel?: boolean;
@@ -80,5 +85,12 @@ export const BACKENDS: Record<
       "OpenAI. Uses your ChatGPT plan — never API credits. Reports tokens rather than cost.",
     cli: "codex",
     reportsCost: false,
+  },
+  opencode: {
+    label: "OpenCode",
+    blurb:
+      "Open source, bring-your-own model. Add keys for OpenRouter, DeepSeek, OpenAI and other OpenAI-compatible APIs under Settings → Providers.",
+    cli: "opencode",
+    reportsCost: true,
   },
 };

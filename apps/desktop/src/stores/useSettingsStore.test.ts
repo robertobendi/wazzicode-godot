@@ -23,6 +23,8 @@ const initial: Settings = {
   codexModel: null,
   effort: null,
   codexEffort: null,
+  opencodeModel: null,
+  opencodeEffort: null,
   houseRules: { enabled: [], custom: "" },
   theme: "system",
   debugDrawer: false,

@@ -17,6 +17,8 @@ const settings: Settings = {
   codexModel: "gpt-5.6-sol",
   effort: "high",
   codexEffort: "xhigh",
+  opencodeModel: null,
+  opencodeEffort: null,
   houseRules: { enabled: [], custom: "" },
   theme: "system",
   debugDrawer: false,

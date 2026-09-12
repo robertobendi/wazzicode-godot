@@ -43,7 +43,7 @@ impl AgentRunOptions {
         if let Some(effort) = self.effort() {
             let valid = match self.backend {
                 Backend::Claude => claude_efforts_for(self.model()).contains(&effort),
-                Backend::Codex => {
+                Backend::Codex | Backend::Opencode => {
                     effort.len() <= 32
                         && effort
                             .chars()
@@ -143,6 +143,25 @@ mod tests {
         for effort in ["High", "high'", "high value"] {
             let invalid = AgentRunOptions {
                 backend: Backend::Codex,
+                effort: Some(effort.into()),
+                ..AgentRunOptions::default()
+            };
+            assert!(invalid.validate().is_err(), "{effort}");
+        }
+    }
+
+    #[test]
+    fn opencode_effort_is_the_variant_word_and_safe_to_put_in_argv() {
+        let valid = AgentRunOptions {
+            backend: Backend::Opencode,
+            effort: Some("maximal".into()),
+            ..AgentRunOptions::default()
+        };
+        assert!(valid.validate().is_ok());
+
+        for effort in ["High", "high value", "'x"] {
+            let invalid = AgentRunOptions {
+                backend: Backend::Opencode,
                 effort: Some(effort.into()),
                 ..AgentRunOptions::default()
             };

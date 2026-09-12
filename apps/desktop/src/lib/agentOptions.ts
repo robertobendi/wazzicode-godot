@@ -2,7 +2,7 @@ import type { AgentBackend, AgentRunOptions } from "@/types/agent";
 import type { Settings } from "@/types/settings";
 
 function isBackend(value: unknown): value is AgentBackend {
-  return value === "claude" || value === "codex";
+  return value === "claude" || value === "codex" || value === "opencode";
 }
 
 function optionalString(value: unknown): string | null {
@@ -40,8 +40,18 @@ export function runOptionsFromSettings(
   return normalizeAgentRunOptions(
     {
       backend,
-      model: backend === "codex" ? settings.codexModel : settings.model,
-      effort: backend === "codex" ? settings.codexEffort : settings.effort,
+      model:
+        backend === "codex"
+          ? settings.codexModel
+          : backend === "opencode"
+            ? settings.opencodeModel
+            : settings.model,
+      effort:
+        backend === "codex"
+          ? settings.codexEffort
+          : backend === "opencode"
+            ? settings.opencodeEffort
+            : settings.effort,
     },
     backend,
   );

@@ -3,6 +3,7 @@ import { api } from "@/api";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import PairingScreen from "@/components/pairing/PairingScreen";
 import CodexAuthScreen from "@/components/codex/CodexAuthScreen";
+import ProvidersPanel from "@/components/providers/ProvidersPanel";
 import type { OnboardingStatus } from "@/types/onboarding";
 import type { ProjectInfo } from "@/types/project";
 import type { AgentBackend } from "@/types/settings";
@@ -105,6 +106,36 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
         />
       );
     }
+    if (backend === "opencode") {
+      return (
+        <div className="flex h-full w-full items-center justify-center bg-ink-950 px-8 py-10">
+          <div className="w-full max-w-md animate-appear rounded-2xl border border-white/[0.08] bg-ink-900/60 p-6">
+            <h2 className="text-lg font-semibold text-fg">Connect a model</h2>
+            <p className="mt-1 text-xs leading-relaxed text-fg-dim">
+              OpenCode needs at least one provider. You can also do this later in
+              Settings → Providers.
+            </p>
+            <div className="mt-4">
+              <ProvidersPanel />
+            </div>
+            <div className="mt-5 flex items-center justify-between">
+              <button
+                onClick={() => setStep(STEP.welcome)}
+                className="text-xs text-fg-muted transition-colors hover:text-fg"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={() => setStep(STEP.ready)}
+                className="rounded-md bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <PairingScreen
         onDone={() => {
@@ -166,13 +197,16 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
 
 /** The CLI status that matters for the selected backend. */
 function cliFor(s: OnboardingStatus, backend: AgentBackend) {
-  return backend === "codex" ? s.codexCli : s.claudeCli;
+  if (backend === "codex") return s.codexCli;
+  if (backend === "opencode") return s.opencodeCli;
+  return s.claudeCli;
 }
 
 const EMPTY_STATUS: OnboardingStatus = {
   agentBackend: "claude",
   claudeCli: { found: false, path: null, version: null, error: null },
   codexCli: { found: false, path: null, version: null, error: null },
+  opencodeCli: { found: false, path: null, version: null, error: null },
   nodeSidecar: { bundled: false },
   currentProject: null,
   projectReady: null,

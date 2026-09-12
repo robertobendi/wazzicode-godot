@@ -8,5 +8,9 @@ export function authenticationBackend(
   backend: AgentBackend,
   repairing: boolean,
 ): AgentBackend | null {
-  return repairing ? backend : null;
+  if (!repairing) return null;
+  // OpenCode has no account to pair: its providers are keys managed inline in
+  // Settings, so it never takes over the full-screen auth surface.
+  if (backend === "opencode") return null;
+  return backend;
 }

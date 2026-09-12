@@ -13,6 +13,7 @@ import { BACKENDS, type AgentBackend } from "@/types/settings";
 import BackendPicker from "./BackendPicker";
 import HouseRulesPanel from "./HouseRulesPanel";
 import ThemePicker from "./ThemePicker";
+import ProvidersPanel from "@/components/providers/ProvidersPanel";
 
 /**
  * Focused settings dialog. Model/thinking controls stay in the composer where
@@ -264,45 +265,56 @@ export default function SettingsPopover() {
         </div>
       )}
 
-      <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3.5">
-        <span className="min-w-0">
-          <span className="block text-sm text-fg">
-            {backend === "codex" ? "ChatGPT account" : "Company account"}
+      {backend === "opencode" ? (
+        <div className="mt-5">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-dim">
+            Providers
+          </div>
+          <div className="mt-2">
+            <ProvidersPanel />
+          </div>
+        </div>
+      ) : (
+        <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3.5">
+          <span className="min-w-0">
+            <span className="block text-sm text-fg">
+              {backend === "codex" ? "ChatGPT account" : "Company account"}
+            </span>
+            <span className="block truncate text-xs text-fg-dim">
+              {backend === "codex"
+                ? codexSignedIn === null
+                  ? "Checking…"
+                  : codexSignedIn
+                    ? "Signed in"
+                    : "Not signed in"
+                : settings.pairedOk
+                  ? "Connected"
+                  : "Not connected"}
+            </span>
           </span>
-          <span className="block truncate text-xs text-fg-dim">
-            {backend === "codex"
-              ? codexSignedIn === null
-                ? "Checking…"
-                : codexSignedIn
-                  ? "Signed in"
-                  : "Not signed in"
-              : settings.pairedOk
-                ? "Connected"
-                : "Not connected"}
-          </span>
-        </span>
-        {backend === "codex" ? (
-          <button
-            onClick={signInToCodex}
-            disabled={
-              !cli.status?.found || !!cli.error || cli.installing || taskActive
-            }
-            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600 disabled:opacity-50"
-          >
-            {codexSignedIn ? "Re-sign in" : "Sign in"}
-          </button>
-        ) : (
-          <button
-            onClick={() => void repair()}
-            disabled={
-              !cli.status?.found || !!cli.error || cli.installing || taskActive
-            }
-            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600 disabled:opacity-50"
-          >
-            Re-pair
-          </button>
-        )}
-      </div>
+          {backend === "codex" ? (
+            <button
+              onClick={signInToCodex}
+              disabled={
+                !cli.status?.found || !!cli.error || cli.installing || taskActive
+              }
+              className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600 disabled:opacity-50"
+            >
+              {codexSignedIn ? "Re-sign in" : "Sign in"}
+            </button>
+          ) : (
+            <button
+              onClick={() => void repair()}
+              disabled={
+                !cli.status?.found || !!cli.error || cli.installing || taskActive
+              }
+              className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600 disabled:opacity-50"
+            >
+              Re-pair
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-dim">
         House rules

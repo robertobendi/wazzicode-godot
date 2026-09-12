@@ -46,6 +46,15 @@ export function repairRunOptions(
   options: AgentRunOptions,
   catalog: AgentModelOption[],
 ): AgentRunOptions {
+  // OpenCode `--variant` values are provider-specific and not enumerable from
+  // the model list, so a selected variant is preserved verbatim.
+  if (options.backend === "opencode") {
+    return {
+      backend: options.backend,
+      model: options.model?.trim() || null,
+      effort: options.effort?.trim() || null,
+    };
+  }
   const model = options.model?.trim() || null;
   const efforts = effortsForModel(options.backend, catalog, model);
   const effort = options.effort?.trim() || null;

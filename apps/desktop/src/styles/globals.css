@@ -1177,6 +1177,54 @@ textarea[class]:focus-visible {
   }
 }
 
+/*
+ * Synchronize button: an animated rainbow ribbon. The gradient is oversized and
+ * slid horizontally (background-position) rather than rotating the element, so
+ * the text stays crisp. A soft outer glow in the same hues makes it read as
+ * "live" without grabbing the accent color used by Send.
+ */
+@keyframes sync-rainbow-slide {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 200% 50%;
+  }
+}
+
+.sync-rainbow {
+  position: relative;
+  background-image: linear-gradient(
+    100deg,
+    #ff5f6d,
+    #ffc371,
+    #47e891,
+    #4facfe,
+    #b06ab3,
+    #ff5f6d
+  );
+  background-size: 200% 100%;
+  animation: sync-rainbow-slide 4s linear infinite;
+  color: #0b0c0f;
+  box-shadow: 0 0 14px -4px rgba(79, 172, 254, 0.55);
+}
+
+.sync-rainbow:hover:not(:disabled) {
+  box-shadow: 0 0 20px -3px rgba(176, 106, 179, 0.7);
+}
+
+.sync-rainbow:disabled {
+  animation-play-state: paused;
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-rainbow {
+    animation: none;
+    background-position: 0% 50%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

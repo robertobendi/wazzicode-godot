@@ -14,6 +14,7 @@ pub(crate) fn model_catalog_blocking(backend: Backend) -> AppResult<Vec<AgentMod
     match backend {
         Backend::Claude => claude_catalog(),
         Backend::Codex => codex_catalog(),
+        Backend::Opencode => opencode_catalog(),
     }
 }
 
@@ -142,6 +143,45 @@ fn parse_codex_catalog(bytes: &[u8]) -> AppResult<Vec<AgentModelOption>> {
         .collect())
 }
 
+fn opencode_catalog() -> AppResult<Vec<AgentModelOption>> {
+    let mut cmd = crate::proc::command("opencode")?;
+    cmd.arg("models");
+    let out = crate::proc::output_with_timeout(cmd, Duration::from_secs(20))?;
+    if !out.status.success() {
+        let detail = String::from_utf8_lossy(&out.stderr);
+        let detail = detail.lines().rev().find(|l| !l.trim().is_empty());
+        return Err(AppError::Other(
+            detail
+                .unwrap_or("OpenCode rejected the model list command.")
+                .trim()
+                .into(),
+        ));
+    }
+    Ok(parse_opencode_models(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// `opencode models` prints one `provider/model` id per line (plus a short
+/// header); reasoning variants are provider-specific, so no fixed effort list
+/// is advertised — `--variant` accepts whatever the selected model supports.
+fn parse_opencode_models(text: &str) -> Vec<AgentModelOption> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty()
+                && !line.starts_with('#')
+                && line.contains('/')
+                && !line.chars().any(char::is_whitespace)
+        })
+        .map(|id| AgentModelOption {
+            id: id.into(),
+            label: id.into(),
+            description: None,
+            default_effort: None,
+            efforts: Vec::new(),
+        })
+        .collect()
+}
+
 pub(crate) fn strongest_effort(efforts: &[String]) -> Option<String> {
     ["ultra", "max", "xhigh", "high", "medium", "low"]
         .into_iter()
@@ -248,6 +288,21 @@ mod tests {
         let models = claude_catalog_from_help("--model <model> aliases include 'opus' or 'sonnet'");
         assert_eq!(models[0].id, "opus");
         assert!(!models.iter().any(|model| model.id == "fable"));
+    }
+
+    #[test]
+    fn parses_opencode_provider_model_lines_and_skips_banners() {
+        let models = parse_opencode_models(
+            "\nModels:\nopencode/big-pickle\ndeepseek/deepseek-v4-pro\ndesktop app\n",
+        );
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["opencode/big-pickle", "deepseek/deepseek-v4-pro"]
+        );
+        assert!(models[0].efforts.is_empty());
     }
 
     #[test]

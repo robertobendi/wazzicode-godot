@@ -2,8 +2,9 @@
 //!
 //! [`build_args`] dispatches on the selected [`Backend`]: the Claude builder
 //! lives here (verified against Claude Code CLI 2.1.209), the Codex one in
-//! [`crate::agent::codex`]. Neither passes the prompt as an argument — it's
-//! written to the child's stdin (see `spawn.rs`).
+//! [`crate::agent::codex`], the OpenCode one in [`crate::agent::opencode`].
+//! Neither passes the prompt as an argument — it's written to the child's stdin
+//! (see `spawn.rs`).
 
 use crate::agent::AgentRunOptions;
 use crate::agent::Backend;
@@ -14,17 +15,21 @@ use std::path::Path;
 /// Per-run inputs, distinct from the persisted `Settings`. Carries the MCP
 /// server in both renderings because the backends consume it differently:
 /// Claude reads the JSON file, Codex takes TOML `-c` overrides built from the
-/// entry. Both describe the same server (see `mcpconfig`).
+/// entry, OpenCode gets a whole app-managed `opencode.json` (agent + MCP)
+/// handed to the child as `OPENCODE_CONFIG` at spawn time. All describe the
+/// same server (see `mcpconfig`).
 pub struct FlagInput<'a> {
     /// App-managed `--mcp-config` file (Claude).
     pub mcp_config_path: &'a Path,
-    /// The same server as a backend-neutral entry (Codex).
+    /// The same server as a backend-neutral entry (Codex / the OpenCode config
+    /// renderer).
     pub mcp_entry: &'a McpEntry,
     /// Continue an existing agent session (multi-turn chat) when set.
     pub resume_session_id: Option<&'a str>,
     /// Cap on agent turns for this run — the auto-loop sets it, chat doesn't.
-    /// Claude enforces it with `--max-turns`; Codex has no equivalent flag and
-    /// ignores it (its runs are bounded by the loop's iteration cap instead).
+    /// Claude enforces it with `--max-turns`; Codex and OpenCode have no
+    /// equivalent flag and ignore it (their runs are bounded by the loop's
+    /// iteration cap instead).
     pub max_turns: Option<u32>,
     /// Explicit per-task controls. `Some` wins over persisted defaults, even
     /// when its model/effort is Automatic (`None`).
@@ -32,7 +37,9 @@ pub struct FlagInput<'a> {
     /// Answer-only run (the project map's Ask box): the agent may read the
     /// project but must not change it. Enforced by the CLI, not by asking
     /// nicely — Claude gets a read-only `--allowedTools` list, Codex gets an
-    /// OS-level read-only sandbox and no MCP server.
+    /// OS-level read-only sandbox and no MCP server, OpenCode gets a
+    /// write/editor-stripped `godot-reader` agent with deny permissions and no
+    /// MCP server.
     pub read_only: bool,
 }
 
@@ -67,6 +74,7 @@ pub fn build_args(backend: Backend, settings: &Settings, input: &FlagInput) -> V
     match backend {
         Backend::Claude => build_claude_args(settings, input),
         Backend::Codex => crate::agent::codex::build_args(settings, input),
+        Backend::Opencode => crate::agent::opencode::build_args(settings, input),
     }
 }
 

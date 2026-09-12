@@ -5,6 +5,7 @@ pub mod codexauth;
 pub mod commands;
 pub mod error;
 pub mod execution;
+pub mod gitsync;
 pub mod gitutil;
 pub mod houserules;
 pub mod looprunner;
@@ -84,6 +85,11 @@ pub fn run() {
             commands::settings::ping,
             commands::settings::house_rule_catalog,
             commands::agent_options::agent_model_catalog,
+            commands::opencode::get_opencode_credentials,
+            commands::opencode::set_opencode_api_key,
+            commands::opencode::set_opencode_compatible_provider,
+            commands::opencode::remove_opencode_credential,
+            commands::opencode::set_opencode_default_model,
             commands::project::validate_godot_project,
             commands::project::set_current_project,
             commands::project_map::read_project_map,
@@ -94,6 +100,7 @@ pub fn run() {
             commands::chat::chat_send,
             commands::chat::chat_cancel,
             commands::chat::chat_subscribe,
+            commands::git_sync::git_synchronize,
             commands::revert::revert_last,
             commands::sessions::save_session,
             commands::sessions::list_sessions,

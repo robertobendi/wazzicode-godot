@@ -63,6 +63,62 @@ pub fn ensure_mcp_config(app: &AppHandle, config_dir: &Path, project: &Path) -> 
     Ok(file)
 }
 
+/// Write `<config_dir>/mcp/<projectHash>.opencode.json` and return its path.
+///
+/// `opencode run` has no `--mcp-config` flag, so this file — handed to the child
+/// as `OPENCODE_CONFIG` (see `agent::spawn`) — is the only way to give an
+/// OpenCode run the same `godot-vibe-os` server Claude and Codex get. It also
+/// defines the `godot-reader` primary agent used by answer-only runs: write,
+/// edit, shell, web and every `godot-vibe-os` tool are denied, so the project
+/// map's Ask box physically cannot change the project.
+pub fn ensure_opencode_config(app: &AppHandle, project: &Path) -> AppResult<PathBuf> {
+    let dir = crate::store::config_dir()?.join("mcp");
+    std::fs::create_dir_all(&dir)?;
+    let file = dir.join(format!("{}.opencode.json", project_hash(project)));
+
+    let entry = mcp_entry(app, project);
+    std::fs::write(&file, serde_json::to_vec_pretty(&opencode_config(&entry))?)?;
+    Ok(file)
+}
+
+/// Render the OpenCode config value for one MCP `entry`. Pure so the shape (and
+/// the read-only agent's denials) can be asserted without a Tauri `AppHandle`.
+fn opencode_config(entry: &McpEntry) -> serde_json::Value {
+    let mut command = vec![entry.command.clone()];
+    command.extend(entry.args.iter().cloned());
+
+    serde_json::json!({
+        "$schema": "https://opencode.ai/config.json",
+        "mcp": {
+            "godot-vibe-os": {
+                "type": "local",
+                "command": command,
+                "environment": { "GVIBE_PROJECT": entry.project },
+                "enabled": true
+            }
+        },
+        "agent": {
+            "godot-reader": {
+                "description": "Read-only Godot project Q&A. Denies every write, shell, web and bridge tool.",
+                "mode": "primary",
+                "tools": {
+                    "write": false,
+                    "edit": false,
+                    "bash": false,
+                    "webfetch": false,
+                    "websearch": false,
+                    "godot-vibe-os*": false
+                },
+                "permission": {
+                    "edit": "deny",
+                    "bash": "deny",
+                    "webfetch": "deny"
+                }
+            }
+        }
+    })
+}
+
 /// First 16 hex chars of SHA-256 over the project path — short but collision-
 /// safe enough to name a per-project file (mcp config, capture image, …).
 pub fn project_hash(project: &Path) -> String {
@@ -214,6 +270,33 @@ mod tests {
         assert_eq!(a, b);
         assert_ne!(a, c);
         assert_eq!(a.len(), 16);
+    }
+
+    #[test]
+    fn opencode_config_carries_the_mcp_server_and_a_locked_down_reader() {
+        let entry = McpEntry {
+            command: "node".into(),
+            args: vec!["/opt/gvibe.cjs".into(), "serve".into()],
+            project: "/Users/x/Game".into(),
+        };
+        let config = opencode_config(&entry);
+        assert_eq!(config["mcp"]["godot-vibe-os"]["type"], "local");
+        assert_eq!(
+            config["mcp"]["godot-vibe-os"]["command"][0],
+            serde_json::json!("node")
+        );
+        assert_eq!(
+            config["mcp"]["godot-vibe-os"]["environment"]["GVIBE_PROJECT"],
+            "/Users/x/Game"
+        );
+        let reader = &config["agent"]["godot-reader"];
+        assert_eq!(reader["mode"], "primary");
+        assert_eq!(reader["tools"]["write"], false);
+        assert_eq!(reader["tools"]["edit"], false);
+        assert_eq!(reader["tools"]["bash"], false);
+        assert_eq!(reader["tools"]["godot-vibe-os*"], false);
+        assert_eq!(reader["permission"]["edit"], "deny");
+        assert_eq!(reader["permission"]["bash"], "deny");
     }
 
     #[test]

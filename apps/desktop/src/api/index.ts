@@ -16,6 +16,11 @@ import type { AuthStatus, AuthVerify, PairingState } from "@/types/pairing";
 import type { CodexAuthStatus } from "@/types/codex";
 import type { LoopOptions, LoopState } from "@/types/loop";
 import type { RevertResult } from "@/types/revert";
+import type { SyncReport } from "@/types/gitSync";
+import type {
+  OpenCodeAuthStatus,
+  OpenCodeCompatibleProviderSpec,
+} from "@/types/opencode";
 import type { SessionIndexEntry, SessionPayload } from "@/types/session";
 import type { QuickAction } from "@/lib/quickActions";
 import type {
@@ -78,6 +83,10 @@ export const api = {
   revertLast: (project: string) =>
     invoke<RevertResult>("revert_last", { project }),
 
+  // Synchronize: commit local work, fetch, fast-forward/merge the upstream, push.
+  syncRepo: (project: string, message?: string) =>
+    invoke<SyncReport>("git_synchronize", { project, message: message ?? null }),
+
   // Session history: persist + resume past chats under .godot-vibe/studio.
   saveSession: (project: string, payload: SessionPayload) =>
     invoke<void>("save_session", { project, payload }),
@@ -133,6 +142,26 @@ export const api = {
   codexLoginStart: () => invoke<void>("codex_login_start"),
   codexLoginCancel: () => invoke<void>("codex_login_cancel"),
   codexLogout: () => invoke<void>("codex_logout"),
+
+  // OpenCode provider credentials. Full keys only travel from the password
+  // field to Rust; reads return masked suffixes. Adding a key writes OpenCode's
+  // own auth store so `opencode run` picks it up immediately.
+  getOpenCodeCredentials: () =>
+    invoke<OpenCodeAuthStatus>("get_opencode_credentials"),
+  setOpenCodeApiKey: (providerId: string, apiKey: string) =>
+    invoke<OpenCodeAuthStatus>("set_opencode_api_key", { providerId, apiKey }),
+  setOpenCodeCompatibleProvider: (spec: OpenCodeCompatibleProviderSpec) =>
+    invoke<OpenCodeAuthStatus>("set_opencode_compatible_provider", {
+      providerId: spec.providerId,
+      name: spec.name,
+      baseUrl: spec.baseUrl,
+      apiKey: spec.apiKey,
+    }),
+  removeOpenCodeCredential: (providerId: string) =>
+    invoke<OpenCodeAuthStatus>("remove_opencode_credential", { providerId }),
+  /** Set (empty string clears) OpenCode's global default `provider/model`. */
+  setOpenCodeDefaultModel: (model: string) =>
+    invoke<OpenCodeAuthStatus>("set_opencode_default_model", { model }),
 
   // Auto mode: the autonomous dev loop. State arrives on the `loop:update`
   // event; loopStart returns the loop id.
