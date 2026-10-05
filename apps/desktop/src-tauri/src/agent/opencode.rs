@@ -1,14 +1,15 @@
 //! Build the argument vector for a headless `opencode run`, plus the capture
 //! rules for its JSON event stream.
 //!
-//! Shape (verified against opencode 1.14.46 — every flag below was checked
-//! against the real binary, not the docs):
+//! Shape (verified against opencode 1.14.46 and, for the renamed approval flag,
+//! opencode 1.18.x — every flag below was checked against the real binary, not
+//! the docs):
 //!
 //! ```text
 //! opencode run \
 //!            --format json [--pure] \
 //!            [-m provider/model] [--variant <effort>] [-s <SESSION_ID>] \
-//!            [--agent <agent-id> | --dangerously-skip-permissions]
+//!            [--agent <agent-id> | --auto | --dangerously-skip-permissions]
 //! ```
 //!
 //! (the prompt arrives on stdin — `opencode run` reads piped stdin when no
@@ -30,13 +31,14 @@
 //!    the same file — a tool set with no `write`/`edit` and `deny` permissions
 //!    for shell/network, so the Ask box physically cannot change the project.
 //!
-//! 3. **Non-interactive by design.** Without `--dangerously-skip-permissions`
-//!    an unhandled permission request in a non-TTY run is *auto-rejected*, not
-//!    prompted (verified in the CLI source: `run` replies `reject` to every
-//!    `permission.asked` when not in auto mode). Studio has its own
-//!    checkpoints/Undo recovery, so full runs pass the flag; read-only runs
-//!    omit it and let the deny rules + auto-reject stand between the agent and
-//!    anything destructive.
+//! 3. **Non-interactive by design.** Without the blanket-approval flag
+//!    (`--auto` on opencode ≥ 1.19, the legacy `--dangerously-skip-permissions`
+//!    on older builds) an unhandled permission request in a non-TTY run is
+//!    *auto-rejected*, not prompted (verified in the CLI source: `run` replies
+//!    `reject` to every `permission.asked` when not in auto mode). Studio has
+//!    its own checkpoints/Undo recovery, so full runs pass the flag; read-only
+//!    runs omit it and let the deny rules + auto-reject stand between the agent
+//!    and anything destructive.
 //!
 //! 4. **`--variant` is the reasoning-effort flag** (provider-specific, e.g.
 //!    `high`, `max`, `minimal`); `-s` resumes an existing session. There is no
@@ -45,6 +47,7 @@
 
 use crate::agent::flags::FlagInput;
 use crate::store::settings::Settings;
+use std::sync::OnceLock;
 
 /// Name of the read-only agent defined in the app's `opencode.json`. Answer-only
 /// runs (`ask_project_map`) select it with `--agent`; full runs use OpenCode's
@@ -61,7 +64,7 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
 
     if input.read_only {
         // The ask agent strips write/edit and denies bash/web/webfetch/question.
-        // No `--dangerously-skip-permissions`: whatever the deny rules miss is
+        // No blanket-approval flag: whatever the deny rules miss is
         // auto-rejected non-interactively rather than prompted.
         args.push("--agent".into());
         args.push(READ_ONLY_AGENT.into());
@@ -69,7 +72,7 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
         // A headless approval prompt has no usable UI and would look like a
         // frozen task. Studio owns recovery through checkpoints, Godot Undo,
         // snapshots and the action log, so runs are non-interactive.
-        args.push("--dangerously-skip-permissions".into());
+        args.push(skip_permissions_flag().into());
     }
 
     if let Some(model) =
@@ -92,6 +95,43 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     }
 
     args
+}
+
+/// The blanket-approval flag for the installed `opencode`. opencode 1.19
+/// renamed `--dangerously-skip-permissions` to `--auto` and dropped the old
+/// spelling, so hard-coding either breaks the other half of the version range.
+/// Decides once per process from `opencode run --help` — a single cheap probe,
+/// cheaper than the capability gate every onboarding poll already runs.
+pub fn skip_permissions_flag() -> &'static str {
+    static FLAG: OnceLock<&'static str> = OnceLock::new();
+    FLAG.get_or_init(|| {
+        let mut help = String::new();
+        let bin = crate::agent::Backend::Opencode.bin();
+        if let Ok(mut cmd) = crate::proc::command(bin) {
+            cmd.args(["run", "--help"]);
+            if let Ok(out) =
+                crate::proc::output_with_timeout(cmd, std::time::Duration::from_secs(10))
+            {
+                help = format!(
+                    "{}\n{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        }
+        choose_skip_flag(&help)
+    })
+}
+
+/// Pure: pick the approval flag from `run --help` text. Anything old enough to
+/// still document the legacy spelling gets it; everything newer — and any help
+/// we couldn't read — gets `--auto`.
+fn choose_skip_flag(help: &str) -> &'static str {
+    if help.contains("--dangerously-skip-permissions") {
+        "--dangerously-skip-permissions"
+    } else {
+        "--auto"
+    }
 }
 
 /// Pull the fields we need off one OpenCode stream line into the shared capture.
@@ -232,9 +272,7 @@ mod tests {
         assert!(args.contains(&"--format".to_string()));
         assert!(args.contains(&"json".to_string()));
         assert!(args.contains(&"--pure".to_string()));
-        assert!(args
-            .iter()
-            .any(|a| a == "--dangerously-skip-permissions"));
+        assert!(args.iter().any(|a| a == skip_permissions_flag()));
         assert!(!args.iter().any(|a| a == "--agent"));
         // The prompt comes from stdin — nothing else arrives on the command line.
         assert!(!args.iter().any(|a| a.contains('\n')));
@@ -251,8 +289,9 @@ mod tests {
         );
         let agent = args.iter().position(|a| a == "--agent").unwrap();
         assert_eq!(args[agent + 1], "godot-reader");
-        // No blanket skip: deny rules + non-interactive auto-reject are the gate.
-        assert!(!args.iter().any(|a| a == "--dangerously-skip-permissions"));
+        // No blanket-approval flag on read-only runs: deny rules +
+        // non-interactive auto-reject are the gate.
+        assert!(!args.iter().any(|a| a == skip_permissions_flag()));
     }
 
     #[test]
@@ -290,6 +329,19 @@ mod tests {
             },
         );
         assert!(!args.iter().any(|a| a == "--max-turns"));
+    }
+
+    #[test]
+    fn skip_flag_tracks_the_installed_cli_spelling() {
+        // opencode ≥ 1.19 documents `--auto`; the legacy spelling is gone.
+        assert_eq!(choose_skip_flag("auto-approve permissions (--auto)"), "--auto");
+        // Older builds still documented the old name.
+        assert_eq!(
+            choose_skip_flag("auto-approve permissions --dangerously-skip-permissions"),
+            "--dangerously-skip-permissions"
+        );
+        // Unreadable help falls back to the current spelling.
+        assert_eq!(choose_skip_flag(""), "--auto");
     }
 
     #[test]

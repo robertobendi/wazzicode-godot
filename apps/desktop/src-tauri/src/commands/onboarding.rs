@@ -289,9 +289,12 @@ fn capabilities_supported(backend: Backend, primary: &str, secondary: &str) -> b
                 .all(|feature| primary.contains(feature))
                 && secondary.contains("--bundled")
         }
-        Backend::Opencode => ["--format", "--pure", "--dangerously-skip-permissions", "--agent"]
-            .iter()
-            .all(|feature| primary.contains(feature)),
+        Backend::Opencode => {
+            ["--format", "--pure", "--agent"]
+                .iter()
+                .all(|feature| primary.contains(feature))
+                && (primary.contains("--auto") || primary.contains("--dangerously-skip-permissions"))
+        }
     }
 }
 
@@ -1025,6 +1028,11 @@ mod tests {
         assert_eq!(plan.program, "npm");
         assert!(plan.args.iter().any(|arg| arg.contains("opencode-ai")));
         assert!(manual_install_command(Backend::Opencode).contains("npm install -g"));
+        assert!(capabilities_supported(
+            Backend::Opencode,
+            "run --format json --pure --agent --auto",
+            ""
+        ));
         assert!(capabilities_supported(
             Backend::Opencode,
             "run --format json --pure --dangerously-skip-permissions --agent",

@@ -420,13 +420,14 @@ pub fn search_path() -> OsString {
 fn probe_dir(dir: &std::path::Path, bin: &str) -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        // Honor PATHEXT — Windows resolves `gh` to `gh.exe`/`gh.cmd`/etc.
+        // Honor PATHEXT — Windows resolves `opencode` to `opencode.exe`/`opencode.cmd`,
+        // and those extensioned candidates must win. npm additionally drops an
+        // EXTENSIONLESS shim (a POSIX shell script) next to the `.cmd`/`.ps1` it
+        // generates; a bare-name-first probe returns that file, which CreateProcessW
+        // cannot execute, so the CLI would read as "installed but not runnable" no
+        // matter how healthy the real install is. Exact-name matches are still
+        // honored below for callers that pass a full name like `gh.exe`.
         let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
-        // Exact name first in case the caller passed `gh.exe`.
-        let direct = dir.join(bin);
-        if direct.is_file() {
-            return Some(direct);
-        }
         for ext in pathext.split(';').filter(|s| !s.is_empty()) {
             let mut name = bin.to_string();
             name.push_str(ext);
@@ -434,6 +435,12 @@ fn probe_dir(dir: &std::path::Path, bin: &str) -> Option<PathBuf> {
             if p.is_file() {
                 return Some(p);
             }
+        }
+        // Fallback for callers that passed an explicit name carrying no PATHEXT
+        // extension at all (e.g. a genuinely extensionless launcher).
+        let direct = dir.join(bin);
+        if direct.is_file() {
+            return Some(direct);
         }
         None
     }
@@ -772,6 +779,35 @@ mod path_discovery_tests {
             "%NOT_A_REAL_VAR_9F2%\\npm"
         );
         assert_eq!(expand_env_placeholders("C:\\plain"), "C:\\plain");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn extensionless_npm_shims_do_not_shadow_runnable_ones() {
+        let dir = std::env::temp_dir().join(format!("proc-shim-{}", nanoid::nanoid!()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // npm writes an extensionless POSIX shim next to the real .cmd/.ps1.
+        std::fs::write(dir.join("opencode"), "#!/bin/sh\n").unwrap();
+        std::fs::write(dir.join("opencode.cmd"), "@echo off\r\n").unwrap();
+        std::fs::write(dir.join("opencode.ps1"), "#!/bin/sh\n").unwrap();
+
+        // The .cmd is the callable one and must win over the shell shim.
+        let resolved = probe_dir(&dir, "opencode").unwrap();
+        assert!(
+            resolved.file_stem() == Some(std::ffi::OsStr::new("opencode")),
+            "expected the .cmd/.CMD match, got {resolved:?}"
+        );
+
+        // An explicitly-extensioned name still resolves via the fallback.
+        std::fs::write(dir.join("gh.exe"), b"MZ").unwrap();
+        assert_eq!(probe_dir(&dir, "gh.exe"), Some(dir.join("gh.exe")));
+
+        // Genuinely extensionless programs still work when nothing real exists.
+        std::fs::write(dir.join("weirdtool"), "#!/bin/sh\n").unwrap();
+        assert_eq!(probe_dir(&dir, "weirdtool"), Some(dir.join("weirdtool")));
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
