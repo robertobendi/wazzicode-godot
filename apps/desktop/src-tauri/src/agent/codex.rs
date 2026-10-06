@@ -59,6 +59,9 @@ const TOOL_TIMEOUT_SECS: u32 = 600;
 /// Node + the bundled `gvibe.cjs` cold-start.
 const STARTUP_TIMEOUT_SECS: u32 = 30;
 
+/// Companion servers (Pyrite) run multi-minute generate → render → review jobs.
+const COMPANION_TOOL_TIMEOUT_SECS: u32 = 1800;
+
 /// Assemble the full argv (everything after the `codex` program name).
 pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     let mut args: Vec<String> = vec!["exec".into()];
@@ -140,13 +143,23 @@ fn mcp_overrides(entry: &McpEntry) -> Vec<String> {
         .map(|a| toml_string(a))
         .collect::<Vec<_>>()
         .join(", ");
-    vec![
+    let mut out = vec![
         format!("{p}.command={}", toml_string(&entry.command)),
         format!("{p}.args=[{args_toml}]"),
         format!("{p}.env.GVIBE_PROJECT={}", toml_string(&entry.project)),
         format!("{p}.startup_timeout_sec={STARTUP_TIMEOUT_SECS}"),
         format!("{p}.tool_timeout_sec={TOOL_TIMEOUT_SECS}"),
-    ]
+    ];
+    for c in &entry.companions {
+        let p = format!("mcp_servers.{}", c.name);
+        let args = c.args.iter().map(|a| toml_string(a)).collect::<Vec<_>>().join(", ");
+        out.push(format!("{p}.command={}", toml_string(&c.command)));
+        out.push(format!("{p}.args=[{args}]"));
+        out.push(format!("{p}.startup_timeout_sec={STARTUP_TIMEOUT_SECS}"));
+        // Asset generation renders and reviews several rounds: minutes, not seconds.
+        out.push(format!("{p}.tool_timeout_sec={COMPANION_TOOL_TIMEOUT_SECS}"));
+    }
+    out
 }
 
 /// Render `s` as a TOML string value.
@@ -255,6 +268,7 @@ mod tests {
             command: r"C:\Program Files\studio\node.exe".into(),
             args: vec![r"C:\Program Files\studio\gvibe.cjs".into(), "serve".into()],
             project: r"C:\Users\dev\Godot\MyGame".into(),
+            companions: vec![],
         }
     }
 
@@ -302,6 +316,21 @@ mod tests {
         // The sandbox governs shell commands, not MCP — so the Godot tools are
         // withheld outright.
         assert!(!args.iter().any(|a| a.starts_with("mcp_servers.")));
+    }
+
+    #[test]
+    fn companion_servers_get_their_own_overrides_and_a_long_tool_timeout() {
+        let mut e = entry();
+        e.companions = vec![crate::mcpconfig::CompanionServer {
+            name: "pyrite".into(),
+            command: r"C:\Program Files\nodejs\node.exe".into(),
+            args: vec![r"C:\tools\pyrite.mjs".into(), "mcp".into()],
+        }];
+        let kv = mcp_overrides(&e);
+        assert!(kv.contains(&r"mcp_servers.pyrite.command='C:\Program Files\nodejs\node.exe'".to_string()));
+        assert!(kv.contains(&r"mcp_servers.pyrite.args=['C:\tools\pyrite.mjs', 'mcp']".to_string()));
+        assert!(kv.contains(&format!("mcp_servers.pyrite.tool_timeout_sec={COMPANION_TOOL_TIMEOUT_SECS}")));
+        assert!(mcp_overrides(&entry()).iter().all(|k| !k.contains("pyrite")));
     }
 
     #[test]

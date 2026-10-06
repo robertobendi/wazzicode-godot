@@ -28,6 +28,62 @@ pub struct McpEntry {
     pub args: Vec<String>,
     /// Value for the server's `GVIBE_PROJECT` environment variable.
     pub project: String,
+    /// Optional companion servers registered alongside the primary one (Pyrite).
+    pub companions: Vec<CompanionServer>,
+}
+
+/// A companion MCP server registered next to `godot-vibe-os` — currently Pyrite,
+/// the AI block modeler whose generated GLB assets the agent then imports into
+/// the project. Optional: when it isn't installed, runs are unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanionServer {
+    /// Server key in the Claude/OpenCode JSON; also a bare TOML key for Codex,
+    /// so it must stay `[a-z_]`.
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+/// Locate Pyrite's MCP launcher. `PYRITE_MCP` (a path to `pyrite.mjs`, run with
+/// the system `node`) wins; otherwise Pyrite's own discovery file,
+/// `<PYRITE_HOME | ~/Pyrite>/mcp-entry.json`, which every `pyrite` command
+/// rewrites. Missing or stale (launcher no longer on disk) → `None`.
+pub fn pyrite_server() -> Option<CompanionServer> {
+    if let Some(script) = std::env::var_os("PYRITE_MCP")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+    {
+        let node = crate::proc::resolve("node")?;
+        return Some(CompanionServer {
+            name: "pyrite".into(),
+            command: node.to_string_lossy().into_owned(),
+            args: vec![script.to_string_lossy().into_owned(), "mcp".into()],
+        });
+    }
+    let home = std::env::var_os("PYRITE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join("Pyrite")))?;
+    let text = std::fs::read_to_string(home.join("mcp-entry.json")).ok()?;
+    parse_pyrite_discovery(&text)
+}
+
+fn parse_pyrite_discovery(text: &str) -> Option<CompanionServer> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let command = v.get("command")?.as_str()?.to_string();
+    if !Path::new(&command).is_file() {
+        return None;
+    }
+    let args = v
+        .get("args")?
+        .as_array()?
+        .iter()
+        .map(|a| a.as_str().map(str::to_string))
+        .collect::<Option<Vec<_>>>()?;
+    Some(CompanionServer {
+        name: "pyrite".into(),
+        command,
+        args,
+    })
 }
 
 /// Resolve the `gvibe` CLI and describe the MCP server entry for `project`.
@@ -38,6 +94,7 @@ pub fn mcp_entry(app: &AppHandle, project: &Path) -> McpEntry {
         command,
         args,
         project: project.to_string_lossy().into_owned(),
+        companions: pyrite_server().into_iter().collect(),
     }
 }
 
@@ -50,17 +107,28 @@ pub fn ensure_mcp_config(app: &AppHandle, config_dir: &Path, project: &Path) -> 
     let file = dir.join(format!("{}.json", project_hash(project)));
 
     let entry = mcp_entry(app, project);
-    let config = serde_json::json!({
-        "mcpServers": {
-            "godot-vibe-os": {
-                "command": entry.command,
-                "args": entry.args,
-                "env": { "GVIBE_PROJECT": entry.project }
-            }
-        }
-    });
-    std::fs::write(&file, serde_json::to_vec_pretty(&config)?)?;
+    std::fs::write(&file, serde_json::to_vec_pretty(&claude_config(&entry))?)?;
     Ok(file)
+}
+
+/// Render Claude's `--mcp-config` JSON: `godot-vibe-os` plus any companions.
+fn claude_config(entry: &McpEntry) -> serde_json::Value {
+    let mut servers = serde_json::Map::new();
+    servers.insert(
+        "godot-vibe-os".into(),
+        serde_json::json!({
+            "command": entry.command,
+            "args": entry.args,
+            "env": { "GVIBE_PROJECT": entry.project }
+        }),
+    );
+    for c in &entry.companions {
+        servers.insert(
+            c.name.clone(),
+            serde_json::json!({ "command": c.command, "args": c.args }),
+        );
+    }
+    serde_json::json!({ "mcpServers": servers })
 }
 
 /// Write `<config_dir>/mcp/<projectHash>.opencode.json` and return its path.
@@ -87,7 +155,7 @@ fn opencode_config(entry: &McpEntry) -> serde_json::Value {
     let mut command = vec![entry.command.clone()];
     command.extend(entry.args.iter().cloned());
 
-    serde_json::json!({
+    let mut config = serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "mcp": {
             "godot-vibe-os": {
@@ -116,7 +184,15 @@ fn opencode_config(entry: &McpEntry) -> serde_json::Value {
                 }
             }
         }
-    })
+    });
+    for c in &entry.companions {
+        let mut cmd = vec![c.command.clone()];
+        cmd.extend(c.args.iter().cloned());
+        config["mcp"][&c.name] = serde_json::json!({ "type": "local", "command": cmd, "enabled": true });
+        // The read-only reader must not reach companion tools either.
+        config["agent"]["godot-reader"]["tools"][format!("{}*", c.name)] = serde_json::json!(false);
+    }
+    config
 }
 
 /// First 16 hex chars of SHA-256 over the project path — short but collision-
@@ -262,6 +338,58 @@ fn dev_repo_path(rel: &[&str]) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    fn test_entry() -> McpEntry {
+        McpEntry {
+            command: "node".into(),
+            args: vec!["/opt/cli.cjs".into(), "serve".into()],
+            project: "/Users/x/Game".into(),
+            companions: vec![],
+        }
+    }
+
+    fn pyrite() -> CompanionServer {
+        CompanionServer {
+            name: "pyrite".into(),
+            command: "node".into(),
+            args: vec!["/opt/pyrite.mjs".into(), "mcp".into()],
+        }
+    }
+
+    #[test]
+    fn pyrite_discovery_requires_a_live_launcher() {
+        let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+        let ok = serde_json::json!({ "command": exe, "args": ["/p/pyrite.mjs", "mcp"] }).to_string();
+        let found = parse_pyrite_discovery(&ok).expect("valid discovery");
+        assert_eq!(found.name, "pyrite");
+        assert_eq!(found.args, vec!["/p/pyrite.mjs", "mcp"]);
+        let stale = serde_json::json!({ "command": "/nope/node", "args": ["mcp"] }).to_string();
+        assert!(parse_pyrite_discovery(&stale).is_none());
+        assert!(parse_pyrite_discovery("not json").is_none());
+    }
+
+    #[test]
+    fn claude_config_registers_companions_next_to_the_engine_server() {
+        let mut entry = test_entry();
+        entry.companions = vec![pyrite()];
+        let c = claude_config(&entry);
+        assert_eq!(c["mcpServers"]["godot-vibe-os"]["env"]["GVIBE_PROJECT"], "/Users/x/Game");
+        assert_eq!(c["mcpServers"]["pyrite"]["args"][0], "/opt/pyrite.mjs");
+        entry.companions.clear();
+        assert!(claude_config(&entry)["mcpServers"].get("pyrite").is_none());
+    }
+
+    #[test]
+    fn companion_servers_join_the_opencode_config_and_stay_off_the_reader() {
+        let mut entry = test_entry();
+        entry.companions = vec![pyrite()];
+        let oc = opencode_config(&entry);
+        assert_eq!(oc["mcp"]["pyrite"]["command"][1], "/opt/pyrite.mjs");
+        assert_eq!(oc["agent"]["godot-reader"]["tools"]["pyrite*"], false);
+        entry.companions.clear();
+        assert!(opencode_config(&entry)["mcp"].get("pyrite").is_none());
+    }
+
+
     #[test]
     fn hash_is_stable_and_short() {
         let a = project_hash(Path::new("/Users/x/Game"));
@@ -278,6 +406,7 @@ mod tests {
             command: "node".into(),
             args: vec!["/opt/gvibe.cjs".into(), "serve".into()],
             project: "/Users/x/Game".into(),
+            companions: vec![],
         };
         let config = opencode_config(&entry);
         assert_eq!(config["mcp"]["godot-vibe-os"]["type"], "local");
