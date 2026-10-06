@@ -144,6 +144,7 @@ func snapshot(params: Dictionary) -> Dictionary:
 	var session := get_session(_session_id) if _session_id >= 0 else null
 	if session != null and session.is_active():
 		_breaked = session.is_breaked()
+	@warning_ignore("incompatible_ternary")
 	return {
 		"runId": _run_id,
 		"sessionId": _session_id if _session_id >= 0 else null,
@@ -425,6 +426,7 @@ func _finite_or_null(value: Variant) -> Variant:
 	if typeof(value) != TYPE_INT and typeof(value) != TYPE_FLOAT:
 		return null
 	var number := float(value)
+	@warning_ignore("incompatible_ternary")
 	return number if is_finite(number) else null
 
 

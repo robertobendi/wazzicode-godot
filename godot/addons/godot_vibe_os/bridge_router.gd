@@ -4,25 +4,43 @@ extends RefCounted
 const MAX_REFLECTION_ITEMS := 500
 const MAX_PROPERTY_ITEMS := 200
 
-var _editor: EditorInterface
 var _uptime: Callable
 var _debugger
+## Import state tracked from signals on editors without EditorFileSystem.is_importing() (pre-4.7).
+var _reimporting := false
 
 
-func _init(editor: EditorInterface, uptime: Callable, debugger) -> void:
-	_editor = editor
+func _init(uptime: Callable, debugger) -> void:
 	_uptime = uptime
 	_debugger = debugger
+	var filesystem := EditorInterface.get_resource_filesystem()
+	if not filesystem.has_method("is_importing"):
+		filesystem.resources_reimporting.connect(_on_resources_reimporting)
+		filesystem.resources_reimported.connect(_on_resources_reimported)
+
+
+func _on_resources_reimporting(_resources: PackedStringArray) -> void:
+	_reimporting = true
+
+
+func _on_resources_reimported(_resources: PackedStringArray) -> void:
+	_reimporting = false
+
+
+func _is_importing(filesystem: EditorFileSystem) -> bool:
+	if filesystem.has_method("is_importing"):
+		return bool(filesystem.call("is_importing"))
+	return _reimporting
 
 
 func health() -> Dictionary:
-	var filesystem := _editor.get_resource_filesystem()
+	var filesystem := EditorInterface.get_resource_filesystem()
 	return {
 		"status": "ok",
 		"godotVersion": Engine.get_version_info().get("string", ""),
 		"projectPath": _project_path(),
 		"uptimeMs": _uptime.call(),
-		"isPlaying": _editor.is_playing_scene(),
+		"isPlaying": EditorInterface.is_playing_scene(),
 		"filesystemScanning": filesystem.is_scanning(),
 	}
 
@@ -80,8 +98,8 @@ func dispatch(method: String, params: Dictionary) -> Dictionary:
 
 
 func _system_summary() -> Dictionary:
-	var roots := _editor.get_open_scene_roots()
-	var filesystem := _editor.get_resource_filesystem()
+	var roots := EditorInterface.get_open_scene_roots()
+	var filesystem := EditorInterface.get_resource_filesystem()
 	return _ok({
 		"engine": "godot",
 		"godotVersion": Engine.get_version_info().get("string", ""),
@@ -89,17 +107,17 @@ func _system_summary() -> Dictionary:
 		"projectPath": _project_path(),
 		"platform": OS.get_name(),
 		"openSceneCount": roots.size(),
-		"editedScene": _scene_path(_editor.get_edited_scene_root()),
-		"isPlaying": _editor.is_playing_scene(),
+		"editedScene": _scene_path(EditorInterface.get_edited_scene_root()),
+		"isPlaying": EditorInterface.is_playing_scene(),
 		"filesystem": _filesystem_status_payload(filesystem),
 	})
 
 
 func _get_open_scenes() -> Dictionary:
-	var paths := _editor.get_open_scenes()
-	var roots := _editor.get_open_scene_roots()
-	var edited := _editor.get_edited_scene_root()
-	var unsaved := _editor.get_unsaved_scenes()
+	var paths := EditorInterface.get_open_scenes()
+	var roots := EditorInterface.get_open_scene_roots()
+	var edited := EditorInterface.get_edited_scene_root()
+	var unsaved: Variant = _unsaved_scenes()
 	var scenes: Array = []
 	for index in range(max(paths.size(), roots.size())):
 		var root: Node = roots[index] if index < roots.size() else null
@@ -109,13 +127,29 @@ func _get_open_scenes() -> Dictionary:
 			"name": str(root.name) if root != null else path.get_file().get_basename(),
 			"rootType": root.get_class() if root != null else "",
 			"active": root == edited,
-			"unsaved": unsaved.has(path),
+			"unsaved": _is_scene_unsaved(path, unsaved),
 		})
 	return _ok({
 		"scenes": scenes,
 		"count": scenes.size(),
 		"activeScene": _scene_path(edited),
 	})
+
+
+## EditorInterface.get_unsaved_scenes() was added in Godot 4.7. Older editors return null.
+func _unsaved_scenes() -> Variant:
+	if EditorInterface.has_method("get_unsaved_scenes"):
+		return PackedStringArray(EditorInterface.call("get_unsaved_scenes"))
+	return null
+
+
+## A scene with no path has never been saved. Otherwise null means this Godot cannot tell.
+func _is_scene_unsaved(path: String, unsaved: Variant) -> Variant:
+	if path.is_empty():
+		return true
+	if unsaved == null:
+		return null
+	return (unsaved as PackedStringArray).has(path)
 
 
 func _get_scene_tree(params: Dictionary) -> Dictionary:
@@ -159,11 +193,11 @@ func _node_tree(scene_root: Node, node: Node, depth: int, max_depth: int, max_no
 
 
 func _inspect_selection(params: Dictionary) -> Dictionary:
-	var root := _editor.get_edited_scene_root()
+	var root := EditorInterface.get_edited_scene_root()
 	var include_properties := _bool_param(params, "includeProperties", true)
 	var max_properties := clampi(_int_param(params, "maxProperties", 100), 1, MAX_PROPERTY_ITEMS)
 	var nodes: Array = []
-	for node in _editor.get_selection().get_selected_nodes():
+	for node in EditorInterface.get_selection().get_selected_nodes():
 		var item := _node_summary(root, node)
 		if include_properties:
 			item["properties"] = _object_properties(node, max_properties)
@@ -172,11 +206,11 @@ func _inspect_selection(params: Dictionary) -> Dictionary:
 
 
 func _filesystem_status() -> Dictionary:
-	return _ok(_filesystem_status_payload(_editor.get_resource_filesystem()))
+	return _ok(_filesystem_status_payload(EditorInterface.get_resource_filesystem()))
 
 
 func _filesystem_scan() -> Dictionary:
-	var filesystem := _editor.get_resource_filesystem()
+	var filesystem := EditorInterface.get_resource_filesystem()
 	filesystem.scan()
 	var result := _filesystem_status_payload(filesystem)
 	result["requested"] = true
@@ -187,7 +221,7 @@ func _filesystem_status_payload(filesystem: EditorFileSystem) -> Dictionary:
 	var root := filesystem.get_filesystem()
 	return {
 		"scanning": filesystem.is_scanning(),
-		"importing": filesystem.is_importing(),
+		"importing": _is_importing(filesystem),
 		"progress": filesystem.get_scanning_progress(),
 		"indexedFiles": _count_files(root) if root != null else 0,
 	}
@@ -272,7 +306,7 @@ func _capture_viewport(params: Dictionary, capture_3d: bool) -> Dictionary:
 		return path_result
 	if DisplayServer.get_name() == "headless":
 		return _fail("CAPTURE_UNAVAILABLE", "Editor viewport capture requires a display server.")
-	var viewport: SubViewport = _editor.get_editor_viewport_3d(_int_param(params, "viewportIndex", 0)) if capture_3d else _editor.get_editor_viewport_2d()
+	var viewport: SubViewport = EditorInterface.get_editor_viewport_3d(_int_param(params, "viewportIndex", 0)) if capture_3d else EditorInterface.get_editor_viewport_2d()
 	if viewport == null:
 		return _fail("CAPTURE_UNAVAILABLE", "The editor viewport is unavailable.")
 	var image := viewport.get_texture().get_image()
@@ -352,19 +386,19 @@ func _open_scene(params: Dictionary) -> Dictionary:
 	var inherited := _bool_param(params, "inherited", false)
 	if not inherited and FileAccess.file_exists(path + ".import"):
 		return _fail("FEATURE_UNAVAILABLE", "Imported scenes cannot be opened directly for editing. Open an inherited scene instead.", {"path": path})
-	var previous_root := _editor.get_edited_scene_root()
+	var previous_root := EditorInterface.get_edited_scene_root()
 	var previous_instance_id := previous_root.get_instance_id() if previous_root != null else 0
 	var expected_path := str(resource.resource_path)
 	if expected_path.is_empty():
 		expected_path = path
-	_editor.open_scene_from_path(path, inherited)
-	var opened_root := _editor.get_edited_scene_root()
+	EditorInterface.open_scene_from_path(path, inherited)
+	var opened_root := EditorInterface.get_edited_scene_root()
 	var opened := false
 	if opened_root != null:
 		if inherited:
 			opened = opened_root.get_instance_id() != previous_instance_id and _scene_path(opened_root).is_empty()
 		else:
-			opened = _scene_path(opened_root) == expected_path and _editor.get_open_scenes().has(expected_path)
+			opened = _scene_path(opened_root) == expected_path and EditorInterface.get_open_scenes().has(expected_path)
 	if not opened:
 		return _fail("FEATURE_UNAVAILABLE", "Godot did not make the requested scene active.", {
 			"path": path,
@@ -383,13 +417,14 @@ func _save_scene(params: Dictionary) -> Dictionary:
 		return _fail("SCENE_SAVE_FAILED", "An unsaved scene requires an explicit res:// path.")
 	if not _is_project_resource_path(path):
 		return _fail("INVALID_ARGUMENT", "Scene paths must start with res://.")
-	_editor.mark_scene_as_unsaved()
-	_editor.save_scene_as(path, _bool_param(params, "withPreview", true) and DisplayServer.get_name() != "headless")
-	var saved_root := _editor.get_edited_scene_root()
-	var saved := (
+	EditorInterface.mark_scene_as_unsaved()
+	EditorInterface.save_scene_as(path, _bool_param(params, "withPreview", true) and DisplayServer.get_name() != "headless")
+	var saved_root := EditorInterface.get_edited_scene_root()
+	var unsaved: Variant = _unsaved_scenes()
+	var saved: bool = (
 		saved_root != null
 		and _scene_path(saved_root) == path
-		and not _editor.get_unsaved_scenes().has(path)
+		and (unsaved == null or not (unsaved as PackedStringArray).has(path))
 		and FileAccess.file_exists(ProjectSettings.globalize_path(path))
 	)
 	if not saved:
@@ -412,13 +447,13 @@ func _set_property(params: Dictionary) -> Dictionary:
 	if not decoded.ok:
 		return decoded
 	var previous = node.get(property_name)
-	var undo := _editor.get_editor_undo_redo()
+	var undo := EditorInterface.get_editor_undo_redo()
 	undo.create_action("Godot Vibe OS: Set %s" % property_name, UndoRedo.MERGE_DISABLE, node)
 	undo.add_do_property(node, property_name, decoded.value)
 	undo.add_undo_property(node, property_name, previous)
 	undo.commit_action()
 	return _ok({
-		"nodePath": _relative_path(_editor.get_edited_scene_root(), node),
+		"nodePath": _relative_path(EditorInterface.get_edited_scene_root(), node),
 		"property": property_name,
 		"previous": _json_value(previous),
 		"value": _json_value(node.get(property_name)),
@@ -452,7 +487,7 @@ func _create_node(params: Dictionary) -> Dictionary:
 	if not prepared.ok:
 		node.free()
 		return prepared
-	var undo := _editor.get_editor_undo_redo()
+	var undo := EditorInterface.get_editor_undo_redo()
 	undo.create_action("Godot Vibe OS: Create %s" % class_type, UndoRedo.MERGE_DISABLE, root)
 	undo.add_do_method(parent, &"add_child", node, true)
 	undo.add_do_method(node, &"set_owner", root)
@@ -469,7 +504,7 @@ func _delete_node(params: Dictionary) -> Dictionary:
 	var target_result := _require_node(params, "nodePath")
 	if not target_result.ok:
 		return target_result
-	var root := _editor.get_edited_scene_root()
+	var root := EditorInterface.get_edited_scene_root()
 	var node: Node = target_result.value
 	if node == root:
 		return _fail("INVALID_ARGUMENT", "The edited scene root cannot be deleted.")
@@ -479,7 +514,7 @@ func _delete_node(params: Dictionary) -> Dictionary:
 	var previous_path := _relative_path(root, node)
 	var previous_owner := node.owner
 	var previous_index := node.get_index()
-	var undo := _editor.get_editor_undo_redo()
+	var undo := EditorInterface.get_editor_undo_redo()
 	undo.create_action("Godot Vibe OS: Delete %s" % node.name, UndoRedo.MERGE_DISABLE, root)
 	undo.add_do_method(parent, &"remove_child", node)
 	undo.add_undo_method(parent, &"add_child", node, true)
@@ -494,7 +529,7 @@ func _reparent_node(params: Dictionary) -> Dictionary:
 	var target_result := _require_node(params, "nodePath")
 	if not target_result.ok:
 		return target_result
-	var root := _editor.get_edited_scene_root()
+	var root := EditorInterface.get_edited_scene_root()
 	var node: Node = target_result.value
 	if node == root:
 		return _fail("INVALID_ARGUMENT", "The edited scene root cannot be reparented.")
@@ -508,7 +543,7 @@ func _reparent_node(params: Dictionary) -> Dictionary:
 	var old_owner := node.owner
 	var old_index := node.get_index()
 	var keep_transform := _bool_param(params, "keepGlobalTransform", true)
-	var undo := _editor.get_editor_undo_redo()
+	var undo := EditorInterface.get_editor_undo_redo()
 	undo.create_action("Godot Vibe OS: Reparent %s" % node.name, UndoRedo.MERGE_DISABLE, root)
 	undo.add_do_method(node, &"reparent", new_parent, keep_transform)
 	undo.add_do_method(node, &"set_owner", root)
@@ -538,7 +573,7 @@ func _instantiate_scene(params: Dictionary) -> Dictionary:
 	var requested_name := _string_param(params, "name", "")
 	if not requested_name.is_empty():
 		node.name = requested_name
-	var undo := _editor.get_editor_undo_redo()
+	var undo := EditorInterface.get_editor_undo_redo()
 	undo.create_action("Godot Vibe OS: Instantiate %s" % scene_path.get_file(), UndoRedo.MERGE_DISABLE, root)
 	undo.add_do_method(parent, &"add_child", node, true)
 	undo.add_do_method(node, &"set_owner", root)
@@ -552,37 +587,37 @@ func _instantiate_scene(params: Dictionary) -> Dictionary:
 
 func _play_run(params: Dictionary) -> Dictionary:
 	var mode := _string_param(params, "mode", "current")
-	if _editor.is_playing_scene():
+	if EditorInterface.is_playing_scene():
 		return _fail("INVALID_ARGUMENT", "A project is already running. Stop it before starting another scene.", _play_status_payload())
 	if not FileAccess.file_exists("res://project.godot"):
 		return _fail("FEATURE_UNAVAILABLE", "Godot cannot run the project because project.godot is missing.")
 	var requested_scene := ""
 	match mode:
 		"current":
-			var root := _editor.get_edited_scene_root()
+			var root := EditorInterface.get_edited_scene_root()
 			if root == null:
 				return _fail("SCENE_NOT_OPEN", "No current scene is open.")
 			requested_scene = _scene_path(root)
 			if requested_scene.is_empty():
 				return _fail("FEATURE_UNAVAILABLE", "The current scene must be saved before it can run.")
-			_editor.play_current_scene()
+			EditorInterface.play_current_scene()
 		"main":
 			requested_scene = str(ProjectSettings.get_setting("application/run/main_scene", ""))
 			if requested_scene.is_empty() or not ResourceLoader.exists(requested_scene, "PackedScene"):
 				return _fail("RESOURCE_NOT_FOUND", "The project does not have a loadable main scene.")
-			_editor.play_main_scene()
+			EditorInterface.play_main_scene()
 		"custom":
 			var path := _string_param(params, "path", "")
 			if not _is_project_resource_path(path) or not ResourceLoader.exists(path, "PackedScene"):
 				return _fail("RESOURCE_NOT_FOUND", "A valid res:// scene path is required for custom play.")
 			requested_scene = path
-			_editor.play_custom_scene(path)
+			EditorInterface.play_custom_scene(path)
 		_:
 			return _fail("INVALID_ARGUMENT", "play.run mode must be current, main, or custom.")
 	var result := _play_status_payload()
 	if not result.playing or result.scenePath != requested_scene:
 		if result.playing:
-			_editor.stop_playing_scene()
+			EditorInterface.stop_playing_scene()
 		return _fail("FEATURE_UNAVAILABLE", "Godot did not start the requested scene.", {
 			"mode": mode,
 			"requestedScene": requested_scene,
@@ -595,7 +630,7 @@ func _play_run(params: Dictionary) -> Dictionary:
 
 
 func _play_stop(params: Dictionary) -> Dictionary:
-	var was_playing := _editor.is_playing_scene()
+	var was_playing := EditorInterface.is_playing_scene()
 	if was_playing:
 		var expected_run_id := _string_param(params, "expectedRunId", "")
 		if not expected_run_id.is_empty():
@@ -603,7 +638,7 @@ func _play_stop(params: Dictionary) -> Dictionary:
 				return _fail("FEATURE_UNAVAILABLE", "The runtime debugger bridge cannot verify the requested run.")
 			if not _debugger.is_run_active(expected_run_id):
 				return _fail("RUN_CHANGED", "The active game is not the run this request started; it was left running.")
-		_editor.stop_playing_scene()
+		EditorInterface.stop_playing_scene()
 	var result := _play_status_payload()
 	if result.playing:
 		return _fail("FEATURE_UNAVAILABLE", "Godot did not stop the running project.", result)
@@ -619,22 +654,22 @@ func _debug_snapshot(params: Dictionary) -> Dictionary:
 	if _debugger == null or not _debugger.has_method("snapshot"):
 		return _fail("FEATURE_UNAVAILABLE", "The runtime debugger bridge is unavailable.")
 	var result: Dictionary = _debugger.snapshot(params)
-	result["playing"] = _editor.is_playing_scene()
+	result["playing"] = EditorInterface.is_playing_scene()
 	return _ok(result)
 
 
 func _debug_capture_frames(params: Dictionary) -> Dictionary:
 	if _debugger == null or not _debugger.has_method("capture_frames"):
 		return _fail("FEATURE_UNAVAILABLE", "The runtime debugger bridge is unavailable.")
-	if not _editor.is_playing_scene() and _string_param(params, "captureId", "").is_empty():
+	if not EditorInterface.is_playing_scene() and _string_param(params, "captureId", "").is_empty():
 		return _fail("PLAY_MODE_REQUIRED", "No Godot game is running, so there are no frames to capture.")
 	return _ok(_debugger.capture_frames(params))
 
 
 func _play_status_payload() -> Dictionary:
 	return {
-		"playing": _editor.is_playing_scene(),
-		"scenePath": _editor.get_playing_scene(),
+		"playing": EditorInterface.is_playing_scene(),
+		"scenePath": EditorInterface.get_playing_scene(),
 	}
 
 
@@ -850,7 +885,7 @@ func _json_value(value, depth := 0):
 
 
 func _require_scene_root() -> Dictionary:
-	var root := _editor.get_edited_scene_root()
+	var root := EditorInterface.get_edited_scene_root()
 	if root == null:
 		return _fail("SCENE_NOT_OPEN", "No edited scene is open.")
 	return {"ok": true, "value": root}

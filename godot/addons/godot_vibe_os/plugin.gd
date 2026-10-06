@@ -16,7 +16,7 @@ func _enter_tree() -> void:
 	add_debugger_plugin(_debugger)
 	if not _runtime_probe_configured():
 		push_warning("[GodotVibeOS] Runtime debugging is unavailable. Re-run gvibe install-addon to configure FoundryRuntimeProbe.")
-	_bridge = BridgeServer.new(get_editor_interface(), _debugger)
+	_bridge = BridgeServer.new(_debugger)
 	add_child(_bridge)
 	_bridge.start()
 

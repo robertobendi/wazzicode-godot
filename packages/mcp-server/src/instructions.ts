@@ -14,6 +14,8 @@ export const SERVER_INSTRUCTIONS = `Godot Vibe OS drives the OPEN Godot editor o
 5. Verify, then report the exact verdict. godot_verify is an import + GDScript syntax gate, not a test suite; tests stay not_configured unless godot_test_run really ran res://tests/run_tests.gd.
 6. For runtime bugs call godot_debug_run; for how the running game moves over time call godot_capture_frames. Editor viewports come from godot_capture_2d_view/godot_capture_3d_view.
 
+PYRITE: with a pyrite MCP server, call pyrite_generate_asset (out_dir=<project>/assets/models/pyrite), godot_refresh_filesystem until imported, then godot_instantiate_scene the res:// .glb. +Z front, +Y up, 1 unit=1 m; Godot forward is -Z: turn 180° on Y.
+
 ERRORS: GODOT_NOT_CONNECTED means the project is not open with the addon enabled. GODOT_RELOADING is retryable. godot_diagnose_connection explains both.
 
 Resources: godot://project-brain, godot://conventions, godot://action-log, godot://scene-tree.`;
