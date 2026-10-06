@@ -27,6 +27,12 @@ export interface HouseRules {
   custom: string;
 }
 
+/** A prompt Synchronize runs for one project, between pulling and pushing. */
+export interface SyncPrompt {
+  prompt: string;
+  enabled: boolean;
+}
+
 export interface Settings {
   schemaVersion: number;
   recentProjects: string[];
@@ -60,6 +66,12 @@ export interface Settings {
   theme: ThemeChoice;
   /** Show the raw stream / debug drawer in the UI. */
   debugDrawer: boolean;
+  /** Offer Pyrite (the AI block modeler) to agent runs when it is installed. */
+  pyriteEnabled: boolean;
+  /** A Pyrite checkout or `pyrite.mjs` linked by hand; null = find it. */
+  pyritePath: string | null;
+  /** Per-project Synchronize prompt, keyed by project path. */
+  syncPrompts: Record<string, SyncPrompt>;
   /** Set true after the first successful Claude pair/verify (skips the gate). */
   pairedOk: boolean;
   /** Set true once the onboarding wizard completes ("Redo setup" clears it). */

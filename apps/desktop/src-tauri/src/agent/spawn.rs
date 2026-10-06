@@ -118,6 +118,14 @@ pub fn spawn_streaming(
         if let Some(path) = &opencode_config {
             std_cmd.env("OPENCODE_CONFIG", path);
         }
+        // Pyrite's generate → render → review loop runs for minutes; give
+        // Claude's MCP client room to wait for it unless the user set a limit.
+        if backend == Backend::Claude
+            && args.iter().any(|a| a == "mcp__pyrite")
+            && std::env::var_os("MCP_TOOL_TIMEOUT").is_none()
+        {
+            std_cmd.env("MCP_TOOL_TIMEOUT", "1800000");
+        }
         // Use each CLI's own stored login rather than provider keys inherited
         // from the app's launch environment. A stray key could silently switch
         // the account and billing path for a non-interactive run. The guard's

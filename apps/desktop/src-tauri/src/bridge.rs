@@ -361,11 +361,15 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(
             directory.join("bridge.json"),
-            format!(
-                r#"{{"host":"127.0.0.1","port":38588,"token":"{}","projectPath":"{}","protocolVersion":"1.1"}}"#,
-                "s".repeat(32),
-                root.display()
-            ),
+            serde_json::json!({
+                "host": "127.0.0.1",
+                "port": 38588,
+                "token": "s".repeat(32),
+                // Serialized, not spliced: a Windows path's backslashes must be escaped.
+                "projectPath": root.display().to_string(),
+                "protocolVersion": "1.1"
+            })
+            .to_string(),
         )
         .unwrap();
         let discovery = read_discovery(&root).expect("valid discovery");

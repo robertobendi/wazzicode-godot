@@ -16,6 +16,7 @@ pub async fn update_settings(
 ) -> AppResult<Settings> {
     let mut current = state.settings.write().await;
     save(&state.config_dir, &settings)?;
+    crate::mcpconfig::set_pyrite_prefs(&settings);
     *current = settings.clone();
     Ok(settings)
 }

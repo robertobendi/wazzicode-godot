@@ -44,30 +44,140 @@ pub struct CompanionServer {
     pub args: Vec<String>,
 }
 
-/// Locate Pyrite's MCP launcher. `PYRITE_MCP` (a path to `pyrite.mjs`, run with
-/// the system `node`) wins; otherwise Pyrite's own discovery file,
-/// `<PYRITE_HOME | ~/Pyrite>/mcp-entry.json`, which every `pyrite` command
-/// rewrites. Missing or stale (launcher no longer on disk) → `None`.
+/// The user's Pyrite choices from Settings, mirrored here so every place that
+/// renders the MCP config (chat, auto mode, onboarding, Ask) sees the same
+/// answer without threading `Settings` through each call. Updated whenever
+/// settings load or save.
+#[derive(Debug, Clone, Default)]
+struct PyritePrefs {
+    disabled: bool,
+    linked: Option<PathBuf>,
+}
+
+static PYRITE_PREFS: std::sync::RwLock<PyritePrefs> = std::sync::RwLock::new(PyritePrefs {
+    disabled: false,
+    linked: None,
+});
+
+/// Adopt the Pyrite part of `settings` for subsequent runs.
+pub fn set_pyrite_prefs(settings: &crate::store::settings::Settings) {
+    let prefs = PyritePrefs {
+        disabled: !settings.pyrite_enabled,
+        linked: settings
+            .pyrite_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from),
+    };
+    if let Ok(mut slot) = PYRITE_PREFS.write() {
+        *slot = prefs;
+    }
+}
+
+/// Where a Pyrite launcher was found, for the Settings card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PyriteSource {
+    /// Linked by hand in Settings.
+    Linked,
+    /// `PYRITE_MCP` in the environment.
+    Env,
+    /// Pyrite's own `mcp-entry.json`, rewritten by every `pyrite` command.
+    Discovered,
+}
+
+/// A located Pyrite install: how to start its MCP server, and where from.
+#[derive(Debug, Clone)]
+pub struct PyriteInstall {
+    pub server: CompanionServer,
+    pub source: PyriteSource,
+    /// The `pyrite.mjs` bundle the server runs.
+    pub script: PathBuf,
+    pub version: Option<String>,
+}
+
+/// `<PYRITE_HOME | ~/Pyrite>`: Pyrite's workspace and discovery directory.
+pub fn pyrite_home() -> Option<PathBuf> {
+    std::env::var_os("PYRITE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join("Pyrite")))
+}
+
+/// The companion server agent runs get, or `None` when Pyrite is switched off
+/// in Settings or isn't installed (runs are then exactly as before).
 pub fn pyrite_server() -> Option<CompanionServer> {
+    let prefs = PYRITE_PREFS.read().map(|p| p.clone()).unwrap_or_default();
+    if prefs.disabled {
+        return None;
+    }
+    locate_pyrite(prefs.linked.as_deref()).ok().map(|i| i.server)
+}
+
+/// Locate Pyrite, most explicit first: a path linked in Settings, then
+/// `PYRITE_MCP` (a path to `pyrite.mjs`), then Pyrite's discovery file. A
+/// linked path that no longer resolves is an error rather than a silent
+/// fallback, so the Settings card can say what is wrong with it.
+pub fn locate_pyrite(linked: Option<&Path>) -> Result<PyriteInstall, String> {
+    if let Some(path) = linked {
+        let script = pyrite_script(path).ok_or_else(|| {
+            format!(
+                "No Pyrite build at {}. Pick the Pyrite folder (after `pnpm build`) or its dist/pyrite.mjs.",
+                path.display()
+            )
+        })?;
+        return node_launcher(script, PyriteSource::Linked);
+    }
     if let Some(script) = std::env::var_os("PYRITE_MCP")
         .map(PathBuf::from)
         .filter(|p| p.is_file())
     {
-        let node = crate::proc::resolve("node")?;
-        return Some(CompanionServer {
+        return node_launcher(script, PyriteSource::Env);
+    }
+    let file = pyrite_home()
+        .ok_or("No home directory to look for Pyrite in.")?
+        .join("mcp-entry.json");
+    let text = std::fs::read_to_string(&file).map_err(|_| {
+        "Run any `pyrite` command once so it registers itself, or link its folder.".to_string()
+    })?;
+    parse_pyrite_discovery(&text).ok_or_else(|| {
+        "Pyrite's registration points at a build that no longer exists. Run `pyrite doctor` once, or link it here.".into()
+    })
+}
+
+/// Accept the bundle itself or a checkout containing `dist/pyrite.mjs`.
+fn pyrite_script(path: &Path) -> Option<PathBuf> {
+    if path.is_file() {
+        return Some(path.to_path_buf());
+    }
+    let bundled = path.join("dist").join("pyrite.mjs");
+    bundled.is_file().then_some(bundled)
+}
+
+fn node_launcher(script: PathBuf, source: PyriteSource) -> Result<PyriteInstall, String> {
+    let node = crate::proc::resolve("node")
+        .ok_or("Pyrite needs Node.js 20+, and `node` isn't on PATH.")?;
+    // dist/pyrite.mjs → the checkout's package.json carries the version.
+    let version = script
+        .parent()
+        .and_then(Path::parent)
+        .and_then(|root| std::fs::read_to_string(root.join("package.json")).ok())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .filter(|pkg| pkg.get("name").and_then(|n| n.as_str()) == Some("pyrite"))
+        .and_then(|pkg| pkg.get("version")?.as_str().map(str::to_string));
+    Ok(PyriteInstall {
+        server: CompanionServer {
             name: "pyrite".into(),
             command: node.to_string_lossy().into_owned(),
             args: vec![script.to_string_lossy().into_owned(), "mcp".into()],
-        });
-    }
-    let home = std::env::var_os("PYRITE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join("Pyrite")))?;
-    let text = std::fs::read_to_string(home.join("mcp-entry.json")).ok()?;
-    parse_pyrite_discovery(&text)
+        },
+        source,
+        script,
+        version,
+    })
 }
 
-fn parse_pyrite_discovery(text: &str) -> Option<CompanionServer> {
+fn parse_pyrite_discovery(text: &str) -> Option<PyriteInstall> {
     let v: serde_json::Value = serde_json::from_str(text).ok()?;
     let command = v.get("command")?.as_str()?.to_string();
     if !Path::new(&command).is_file() {
@@ -79,10 +189,22 @@ fn parse_pyrite_discovery(text: &str) -> Option<CompanionServer> {
         .iter()
         .map(|a| a.as_str().map(str::to_string))
         .collect::<Option<Vec<_>>>()?;
-    Some(CompanionServer {
-        name: "pyrite".into(),
-        command,
-        args,
+    // The bundle is the argument just before the `mcp` subcommand; it must
+    // still exist (a moved checkout), or the server would die on start.
+    let mcp = args.iter().rposition(|a| a == "mcp")?;
+    let script = PathBuf::from(args.get(mcp.checked_sub(1)?)?);
+    if !script.is_file() {
+        return None;
+    }
+    Some(PyriteInstall {
+        server: CompanionServer {
+            name: "pyrite".into(),
+            command,
+            args,
+        },
+        source: PyriteSource::Discovered,
+        script,
+        version: v.get("version").and_then(|x| x.as_str()).map(str::to_string),
     })
 }
 
@@ -358,13 +480,33 @@ mod tests {
     #[test]
     fn pyrite_discovery_requires_a_live_launcher() {
         let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
-        let ok = serde_json::json!({ "command": exe, "args": ["/p/pyrite.mjs", "mcp"] }).to_string();
+        // Any existing file stands in for the bundle.
+        let ok = serde_json::json!({ "version": "0.1.0", "command": exe, "args": [exe, "mcp"] }).to_string();
         let found = parse_pyrite_discovery(&ok).expect("valid discovery");
-        assert_eq!(found.name, "pyrite");
-        assert_eq!(found.args, vec!["/p/pyrite.mjs", "mcp"]);
+        assert_eq!(found.server.name, "pyrite");
+        assert_eq!(found.server.args, vec![exe.clone(), "mcp".to_string()]);
+        assert_eq!(found.source, PyriteSource::Discovered);
+        assert_eq!(found.version.as_deref(), Some("0.1.0"));
         let stale = serde_json::json!({ "command": "/nope/node", "args": ["mcp"] }).to_string();
         assert!(parse_pyrite_discovery(&stale).is_none());
+        // A live node whose bundle was deleted (checkout moved) is stale too.
+        let moved = serde_json::json!({ "command": exe, "args": ["/gone/pyrite.mjs", "mcp"] }).to_string();
+        assert!(parse_pyrite_discovery(&moved).is_none());
         assert!(parse_pyrite_discovery("not json").is_none());
+    }
+
+    #[test]
+    fn a_linked_folder_resolves_to_its_bundle_and_a_bad_link_says_why() {
+        let root = std::env::temp_dir().join(format!("pyrite-link-{}", std::process::id()));
+        let dist = root.join("dist");
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(dist.join("pyrite.mjs"), "").unwrap();
+        assert_eq!(pyrite_script(&root), Some(dist.join("pyrite.mjs")));
+        assert_eq!(pyrite_script(&dist.join("pyrite.mjs")), Some(dist.join("pyrite.mjs")));
+        assert_eq!(pyrite_script(&dist), None);
+        let err = locate_pyrite(Some(&root.join("missing"))).unwrap_err();
+        assert!(err.contains("No Pyrite build"), "{err}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

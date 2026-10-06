@@ -13,6 +13,9 @@ import { BACKENDS, type AgentBackend } from "@/types/settings";
 import BackendPicker from "./BackendPicker";
 import HouseRulesPanel from "./HouseRulesPanel";
 import ThemePicker from "./ThemePicker";
+import Toggle from "./Toggle";
+import PyritePanel from "./PyritePanel";
+import SyncPromptPanel from "./SyncPromptPanel";
 import ProvidersPanel from "@/components/providers/ProvidersPanel";
 
 /**
@@ -34,6 +37,7 @@ export default function SettingsPopover() {
   const queuedTaskCount = useChatStore((s) => s.queuedTasks.length);
   const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
   const taskActive = chatRunning || queuedTaskCount > 0 || loopRunning;
+  const project = useChatStore((s) => s.project);
 
   const backend: AgentBackend = settings?.agentBackend ?? "claude";
   const cli = useCliSetup(backend);
@@ -330,6 +334,28 @@ export default function SettingsPopover() {
         />
       </div>
 
+      {project && (
+        <>
+          <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-dim">
+            Synchronize
+          </div>
+          <p className="mt-1.5 text-xs leading-relaxed text-fg-dim">
+            Besides committing, pulling and pushing, Synchronize can run a
+            prompt of yours for this project.
+          </p>
+          <div className="mt-2">
+            <SyncPromptPanel project={project} />
+          </div>
+        </>
+      )}
+
+      <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-dim">
+        Companion tools
+      </div>
+      <div className="mt-2">
+        <PyritePanel disabled={taskActive} />
+      </div>
+
       <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-dim">
         Appearance
       </div>
@@ -372,42 +398,5 @@ export default function SettingsPopover() {
         </div>
       </details>
     </div>
-  );
-}
-
-function Toggle({
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  label: string;
-  hint: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className="mt-3 flex w-full items-start justify-between gap-3 text-left"
-    >
-      <span>
-        <span className="block text-sm text-fg">{label}</span>
-        <span className="block text-xs text-fg-dim">{hint}</span>
-      </span>
-      <span
-        className={`mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors duration-150 ${
-          checked ? "bg-accent" : "bg-ink-700"
-        }`}
-      >
-        <span
-          className={`block h-4 w-4 rounded-full transition-transform duration-150 ${
-            checked ? "translate-x-4 bg-ink-950" : "translate-x-0 bg-fg-dim"
-          }`}
-        />
-      </span>
-    </button>
   );
 }

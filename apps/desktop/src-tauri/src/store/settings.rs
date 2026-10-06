@@ -2,6 +2,7 @@ use crate::agent::{AgentModelOption, Backend};
 use crate::error::AppResult;
 use crate::houserules::HouseRules;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Bump when the on-disk shape changes in a way that needs migration.
@@ -26,6 +27,17 @@ pub enum ThemeChoice {
     Light,
     #[default]
     Dark,
+}
+
+/// A prompt the Synchronize button runs for one project, between pulling the
+/// remote and pushing back — e.g. "point the API endpoint at the new server".
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPrompt {
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// Persistent user settings. Lives at `<config_dir>/settings.json`.
@@ -91,6 +103,16 @@ pub struct Settings {
     /// Show the raw stream / debug drawer in the UI.
     #[serde(default)]
     pub debug_drawer: bool,
+    /// Offer Pyrite (the AI block modeler) to agent runs when it is installed.
+    #[serde(default = "default_true")]
+    pub pyrite_enabled: bool,
+    /// A Pyrite checkout or `pyrite.mjs` linked by hand. Wins over the
+    /// auto-discovered install; `None` means "find it automatically".
+    #[serde(default)]
+    pub pyrite_path: Option<String>,
+    /// Per-project Synchronize prompt, keyed by project path.
+    #[serde(default)]
+    pub sync_prompts: BTreeMap<String, SyncPrompt>,
     /// Set true after the first successful pair/verify. Lets the app skip the
     /// pairing gate on subsequent launches (pairing is per-machine).
     #[serde(default)]
@@ -104,6 +126,10 @@ pub struct Settings {
 
 fn default_schema_version() -> u32 {
     CURRENT_SCHEMA_VERSION
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Settings {
@@ -148,6 +174,9 @@ impl Default for Settings {
             house_rules: HouseRules::default(),
             theme: ThemeChoice::Dark,
             debug_drawer: false,
+            pyrite_enabled: true,
+            pyrite_path: None,
+            sync_prompts: BTreeMap::new(),
             paired_ok: false,
             onboarded: false,
         }
@@ -359,6 +388,14 @@ mod tests {
         assert!(migrate_legacy_defaults(&mut existing));
         assert_eq!(existing.theme, ThemeChoice::Light);
         assert_eq!(Settings::default().theme, ThemeChoice::Dark);
+    }
+
+    #[test]
+    fn a_file_without_companion_keys_enables_pyrite_and_has_no_sync_prompts() {
+        let s: Settings = serde_json::from_str(r#"{ "schemaVersion": 7 }"#).unwrap();
+        assert!(s.pyrite_enabled);
+        assert_eq!(s.pyrite_path, None);
+        assert!(s.sync_prompts.is_empty());
     }
 
     #[test]
