@@ -1,6 +1,7 @@
 pub mod agent_options;
 pub mod chat;
 pub mod codex_auth;
+pub mod companions;
 pub mod diagnostics;
 pub mod git_sync;
 pub mod loops;

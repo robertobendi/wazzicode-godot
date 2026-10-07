@@ -105,6 +105,12 @@ fn build_claude_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     for tool in tools {
         args.push((*tool).to_string());
     }
+    // Companion MCP servers (Pyrite) are whitelisted the same way, per server.
+    if !input.read_only {
+        for c in &input.mcp_entry.companions {
+            args.push(format!("mcp__{}", c.name));
+        }
+    }
 
     // App-managed MCP config, and *only* that config — `--strict-mcp-config`
     // ignores any project `.mcp.json`, so machine-specific paths never leak
@@ -172,6 +178,7 @@ mod tests {
             command: "node".into(),
             args: vec!["/opt/gvibe.cjs".into(), "serve".into()],
             project: "/Users/x/Game".into(),
+            companions: vec![],
         }
     }
 
@@ -193,6 +200,29 @@ mod tests {
                 read_only: false,
             },
         )
+    }
+
+    #[test]
+    fn companion_servers_are_whitelisted_except_for_read_only_runs() {
+        let cfg = PathBuf::from("/tmp/mcp.json");
+        let mut e = entry();
+        e.companions = vec![crate::mcpconfig::CompanionServer {
+            name: "pyrite".into(),
+            command: "node".into(),
+            args: vec!["/opt/pyrite.mjs".into(), "mcp".into()],
+        }];
+        let input = |read_only| FlagInput {
+            mcp_config_path: &cfg,
+            mcp_entry: &e,
+            resume_session_id: None,
+            max_turns: None,
+            run_options: None,
+            read_only,
+        };
+        let args = build_args(Backend::Claude, &Settings::default(), &input(false));
+        assert!(args.contains(&"mcp__pyrite".to_string()));
+        let ro = build_args(Backend::Claude, &Settings::default(), &input(true));
+        assert!(!ro.contains(&"mcp__pyrite".to_string()));
     }
 
     #[test]

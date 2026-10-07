@@ -36,6 +36,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config_dir: PathBuf, settings: Settings) -> Self {
+        crate::mcpconfig::set_pyrite_prefs(&settings);
         Self {
             settings: RwLock::new(settings),
             config_dir,

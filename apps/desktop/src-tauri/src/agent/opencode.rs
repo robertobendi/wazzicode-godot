@@ -228,6 +228,7 @@ mod tests {
             command: "/usr/local/bin/node".into(),
             args: vec!["/opt/gvibe.cjs".into(), "serve".into()],
             project: "/Users/x/Game".into(),
+            companions: vec![],
         })
     }
 

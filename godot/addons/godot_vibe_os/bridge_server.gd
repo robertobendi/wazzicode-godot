@@ -14,7 +14,6 @@ const DISCOVERY_HEARTBEAT_INTERVAL_MS := 1_000
 const DISCOVERY_LEASE_MS := 5_000
 const UNIX_PLATFORMS := ["iOS", "Linux", "FreeBSD", "NetBSD", "OpenBSD", "BSD", "macOS"]
 
-var _editor: EditorInterface
 var _router: RefCounted
 var _server := TCPServer.new()
 var _clients: Array[Dictionary] = []
@@ -27,9 +26,8 @@ var _last_discovery_check_ticks := 0
 var _last_discovery_heartbeat_ticks := 0
 
 
-func _init(editor: EditorInterface, debugger) -> void:
-	_editor = editor
-	_router = BridgeRouter.new(editor, Callable(self, "uptime_ms"), debugger)
+func _init(debugger) -> void:
+	_router = BridgeRouter.new(Callable(self, "uptime_ms"), debugger)
 
 
 func start() -> void:

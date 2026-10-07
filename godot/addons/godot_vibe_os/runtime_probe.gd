@@ -244,6 +244,7 @@ func _average_hash(image: Image) -> String:
 	var total := 0
 	for offset in range(HASH_SIZE * HASH_SIZE):
 		total += int(pixels[offset])
+	@warning_ignore("integer_division")
 	var average := total / (HASH_SIZE * HASH_SIZE)
 	var hex := ""
 	var nibble := 0
@@ -276,4 +277,5 @@ func _performance_sample(timestamp: int) -> Dictionary:
 
 func _monitor(monitor: Performance.Monitor, scale: float = 1.0) -> Variant:
 	var value := Performance.get_monitor(monitor) * scale
+	@warning_ignore("incompatible_ternary")
 	return value if is_finite(value) else null

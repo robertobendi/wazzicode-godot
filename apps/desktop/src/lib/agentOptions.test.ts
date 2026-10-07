@@ -22,6 +22,9 @@ const settings: Settings = {
   houseRules: { enabled: [], custom: "" },
   theme: "system",
   debugDrawer: false,
+  pyriteEnabled: true,
+  pyritePath: null,
+  syncPrompts: {},
   pairedOk: true,
   onboarded: true,
 };

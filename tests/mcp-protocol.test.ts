@@ -122,6 +122,16 @@ describe("MCP server instructions", () => {
     expect(composed.startsWith(SERVER_INSTRUCTIONS)).toBe(true);
   });
 
+  it("names only registered godot_* tools; companion-server tools are not ours", () => {
+    const registered = new Set(allTools.map((tool) => tool.name));
+    const named = [...SERVER_INSTRUCTIONS.matchAll(/\bgodot_[a-z0-9_]+/g)].map((match) => match[0]);
+    expect(named.length).toBeGreaterThan(0);
+    expect(named.filter((name) => !registered.has(name))).toEqual([]);
+    // Pyrite guidance names the companion server's tool without claiming it is registered here.
+    expect(SERVER_INSTRUCTIONS).toContain("pyrite_generate_asset");
+    expect([...registered].some((name) => name.startsWith("pyrite_"))).toBe(false);
+  });
+
   it("delivers instructions under the budget over the real handshake", async () => {
     const { initialize } = await connect({
       projectPath: await project(),

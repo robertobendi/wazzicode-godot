@@ -43,7 +43,8 @@ export const SceneSummarySchema = z.object({
   name: z.string(),
   rootType: z.string(),
   active: z.boolean(),
-  unsaved: z.boolean(),
+  /** null when the editor cannot report unsaved scenes (EditorInterface.get_unsaved_scenes is Godot 4.7+). */
+  unsaved: z.boolean().nullable(),
 });
 export const OpenScenesResultSchema = z.object({
   scenes: z.array(SceneSummarySchema),
